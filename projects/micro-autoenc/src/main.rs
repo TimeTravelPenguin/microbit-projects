@@ -109,10 +109,6 @@ fn run_training(args: TrainArgs, device: ComputeDevice) -> Result<()> {
         config.shuffle_buffer_frames = buffer_frames.get();
     }
 
-    if let Some(learning_rate) = args.learning_rate {
-        config.learning_rate = learning_rate;
-    }
-
     if let Some(seed) = args.seed {
         config.seed = seed;
     }

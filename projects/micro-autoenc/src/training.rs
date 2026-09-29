@@ -5,12 +5,17 @@ use std::{
 
 use anyhow::{Context, Result, ensure};
 use burn::{
+    data::dataloader::DataLoader,
+    lr_scheduler::{
+        cosine::CosineAnnealingLrSchedulerConfig, linear::LinearLrSchedulerConfig,
+        sequential::SequentialLrSchedulerConfig,
+    },
     nn::loss::{MseLoss, Reduction},
     optim::AdamConfig,
     prelude::*,
     train::{
-        EarlyStoppingStrategy, InferenceStep, Learner, MetricEarlyStoppingStrategy,
-        RegressionOutput, StoppingCondition, SupervisedTraining, TrainOutput, TrainStep,
+        InferenceStep, Learner, MetricEarlyStoppingStrategy, RegressionOutput, StoppingCondition,
+        SupervisedTraining, TrainOutput, TrainStep,
         metric::{
             IterationSpeedMetric, LearningRateMetric, LossMetric,
             store::{Aggregate, Direction, Split},
@@ -113,19 +118,33 @@ impl<const E: usize, const D: usize> InferenceStep for Autoencoder<E, D> {
 pub struct TrainingConfig<const E: usize = 4, const D: usize = 4> {
     pub model: AutoencoderConfig<E, D>,
     pub optimizer: AdamConfig,
+    pub num_epochs: usize,
+    pub batch_size: usize,
+    pub seed: u64,
+
     /// Directory containing the downloaded VoiceBank Parquet shards.
     #[serde(default = "default_dataset_dir")]
     pub dataset_dir: PathBuf,
+
     /// Speakers held out from the source training shards for validation.
     #[serde(default = "default_validation_speakers")]
     pub validation_speakers: Vec<String>,
-    pub num_epochs: usize,
-    pub batch_size: usize,
+
     /// Maximum number of frames retained for bounded training shuffling.
     #[serde(default = "default_shuffle_buffer_frames")]
     pub shuffle_buffer_frames: usize,
-    pub seed: u64,
-    pub learning_rate: f64,
+
+    #[serde(default = "default_max_learning_rate", alias = "learning_rate")]
+    pub max_learning_rate: f64,
+
+    /// Learning rate used at the start of warmup and at the end of
+    /// cosine annealing.
+    #[serde(default = "default_min_learning_rate")]
+    pub min_learning_rate: f64,
+
+    /// Fraction of all optimizer steps devoted to linear warmup.
+    #[serde(default = "default_warmup_fraction")]
+    pub warmup_fraction: f64,
 }
 
 impl<const E: usize, const D: usize> TrainingConfig<E, D> {
@@ -139,7 +158,9 @@ impl<const E: usize, const D: usize> TrainingConfig<E, D> {
             batch_size: 64,
             shuffle_buffer_frames: default_shuffle_buffer_frames(),
             seed: 42,
-            learning_rate: 1.0e-4,
+            max_learning_rate: default_max_learning_rate(),
+            min_learning_rate: default_min_learning_rate(),
+            warmup_fraction: default_warmup_fraction(),
         }
     }
 
@@ -179,8 +200,19 @@ impl<const E: usize, const D: usize> TrainingConfig<E, D> {
         self
     }
 
-    pub fn with_learning_rate(mut self, learning_rate: f64) -> Self {
-        self.learning_rate = learning_rate;
+    pub fn with_learning_rate_range(
+        mut self,
+        min_learning_rate: f64,
+        max_learning_rate: f64,
+    ) -> Self {
+        self.min_learning_rate = min_learning_rate;
+        self.max_learning_rate = max_learning_rate;
+
+        self
+    }
+
+    pub fn with_warmup_fraction(mut self, warmup_fraction: f64) -> Self {
+        self.warmup_fraction = warmup_fraction;
 
         self
     }
@@ -204,6 +236,18 @@ fn default_validation_speakers() -> Vec<String> {
 
 const fn default_shuffle_buffer_frames() -> usize {
     4096
+}
+
+const fn default_max_learning_rate() -> f64 {
+    1.0e-3
+}
+
+const fn default_min_learning_rate() -> f64 {
+    1.0e-5
+}
+
+const fn default_warmup_fraction() -> f64 {
+    0.05
 }
 
 /// Trains on paired noisy/clean audio, with speaker-disjoint validation each epoch.
@@ -241,8 +285,21 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         "shuffle buffer size must be greater than zero"
     );
     ensure!(
-        config.learning_rate.is_finite() && config.learning_rate > 0.0,
-        "learning rate must be finite and greater than zero"
+        config.min_learning_rate.is_finite() && config.min_learning_rate > 0.0,
+        "minimum learning rate must be finite and greater than zero"
+    );
+    ensure!(
+        config.max_learning_rate.is_finite()
+            && config.max_learning_rate > config.min_learning_rate
+            && config.max_learning_rate <= 1.0,
+        "maximum learning rate must be finite, greater than the minimum \
+     learning rate, and at most 1"
+    );
+    ensure!(
+        config.warmup_fraction.is_finite()
+            && config.warmup_fraction > 0.0
+            && config.warmup_fraction < 1.0,
+        "warmup fraction must be finite and strictly between zero and one"
     );
     ensure!(
         !config.validation_speakers.is_empty(),
@@ -278,12 +335,48 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
 
     let device = device.into().inner();
     device.seed(config.seed);
+
     let autodiff_device = device.clone().autodiff();
 
-    let dataloader_train = Arc::new(
+    let dataloader_train =
         VoiceBankDataLoader::new(dataset_train, config.batch_size, autodiff_device.clone())?
-            .shuffle(config.seed, config.shuffle_buffer_frames)?,
+            .shuffle(config.seed, config.shuffle_buffer_frames)?;
+
+    let steps_per_epoch = dataloader_train.num_items().div_ceil(config.batch_size);
+
+    let total_steps = steps_per_epoch
+        .checked_mul(config.num_epochs)
+        .context("total training step count overflowed usize")?;
+
+    ensure!(
+        total_steps >= 2,
+        "training requires at least two optimizer steps"
     );
+
+    let warmup_steps = (total_steps as f64 * config.warmup_fraction).round() as usize;
+
+    let warmup_steps = warmup_steps.clamp(1, total_steps - 1);
+
+    let cosine_steps = total_steps - warmup_steps;
+
+    let lr_scheduler = SequentialLrSchedulerConfig::new(
+        vec![
+            LinearLrSchedulerConfig::new(
+                config.min_learning_rate,
+                config.max_learning_rate,
+                warmup_steps,
+            )
+            .into(),
+            CosineAnnealingLrSchedulerConfig::new(config.max_learning_rate, cosine_steps)
+                .with_min_lr(config.min_learning_rate)
+                .into(),
+        ],
+        vec![warmup_steps],
+    )
+    .init()
+    .map_err(|err| anyhow::anyhow!("initializing learning-rate scheduler: {err}"))?;
+
+    let dataloader_train = Arc::new(dataloader_train);
 
     let dataloader_valid = Arc::new(VoiceBankDataLoader::new(
         dataset_valid,
@@ -296,8 +389,8 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         .context("saving training configuration")?;
 
     let training = SupervisedTraining::new(artifact_dir, dataloader_train, dataloader_valid)
-        .metric_train(IterationSpeedMetric::new())
         .metric_train_numeric(LossMetric::new())
+        .metric_train(IterationSpeedMetric::new())
         .metric_valid_numeric(LossMetric::new())
         .metric_train_numeric(LearningRateMetric::new())
         .early_stopping(MetricEarlyStoppingStrategy::new(
@@ -313,11 +406,7 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
 
     let interrupter = training.interrupter();
     let model = config.model.init(&autodiff_device);
-    let result = training.launch(Learner::new(
-        model,
-        config.optimizer.init(),
-        config.learning_rate,
-    ));
+    let result = training.launch(Learner::new(model, config.optimizer.init(), lr_scheduler));
 
     // In this Burn prerelease, streaming read failures stop the learner through
     // its interrupter; launch itself does not return a Result.

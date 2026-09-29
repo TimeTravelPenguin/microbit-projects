@@ -79,10 +79,6 @@ pub struct TrainArgs {
     #[arg(long)]
     pub shuffle_buffer_frames: Option<NonZeroUsize>,
 
-    /// Override the Adam learning rate (default: 0.0001)
-    #[arg(long, value_parser = parse_learning_rate)]
-    pub learning_rate: Option<f64>,
-
     /// Override the random seed (default: 42)
     #[arg(long)]
     pub seed: Option<u64>,
