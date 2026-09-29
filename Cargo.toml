@@ -1,0 +1,6 @@
+[workspace]
+resolver = "3"
+members = ["projects/*"]
+
+[workspace.lints.clippy]
+nursery = "allow"
