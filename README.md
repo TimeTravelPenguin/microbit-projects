@@ -7,9 +7,11 @@ microcontrollers.
 
 Below is a list of current projects.
 
-| Project          | Description                                   |
-| ---------------- | --------------------------------------------- |
-| microbit-autoenc | Use an autoencoder to remove noise from audio |
+| Project            | Description                                   |
+| ------------------ | --------------------------------------------- |
+| [microbit-autoenc] | Use an autoencoder to remove noise from audio |
+
+[microbit-autoenc]: ./projects/micro-autoenc/
 
 ## AI Usage
 
