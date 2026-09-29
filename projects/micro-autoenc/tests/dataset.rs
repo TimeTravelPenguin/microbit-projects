@@ -3,14 +3,18 @@
 use std::{fs::File, io::Cursor, path::Path};
 
 use burn::{
+    config::Config,
     data::dataloader::{DataLoader, batcher::Batcher},
-    tensor::Device,
+    module::Module,
+    optim::AdamConfig,
+    tensor::{Device, Tensor},
     train::InferenceStep,
 };
 use hound::{SampleFormat, WavSpec, WavWriter};
 use micro_autoenc::{
     AutoencoderConfig,
     dataset::{DatasetSplit, DenoisingBatcher, VoiceBankDataLoader, VoiceBankDataset},
+    training::{TrainingConfig, train},
 };
 use polars::prelude::*;
 use tempfile::tempdir;
@@ -534,6 +538,201 @@ fn invalid_batch_and_shuffle_sizes_are_rejected() {
             .unwrap()
             .shuffle(42, 0)
             .is_err()
+    );
+}
+
+#[test]
+fn training_streams_audio_for_multiple_epochs_and_exports_reloadable_weights() {
+    let directory = tempdir().unwrap();
+    let artifact_dir = directory.path().join("run");
+    let clean = wav(&[4096; 12], 16_000, 1);
+    let noisy = wav(&[8192; 12], 16_000, 1);
+    write_shard(
+        &directory.path().join("train-00000.parquet"),
+        &[Some("p226_001"), Some("p282_001"), Some("p287_001")],
+        &[Some(clean.as_slice()); 3],
+        &[Some(noisy.as_slice()); 3],
+    );
+
+    // Training must validate on held-out training speakers, never test shards.
+    std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
+    let model_config = AutoencoderConfig::new(4, 2, [6, 5], [6]).with_dropout([0.1, 0.1], [0.2]);
+    let config = TrainingConfig::new(model_config, AdamConfig::new())
+        .with_dataset_dir(directory.path())
+        .with_num_epochs(2)
+        .with_batch_size(2)
+        .with_shuffle_buffer_frames(2)
+        .with_learning_rate(0.01);
+    let device = Device::flex();
+    let trained = train::<4, 2, 1>(&artifact_dir, config.clone(), device.clone()).unwrap();
+    let restored_config = TrainingConfig::<2, 1>::load(artifact_dir.join("config.json")).unwrap();
+    assert_eq!(restored_config.to_string(), config.to_string());
+
+    let restored = model_config
+        .init(&device)
+        .try_load_file(artifact_dir.join("model.bpk"))
+        .unwrap()
+        .valid();
+    let input = Tensor::<2>::from_data([[0.25; 4]], &device);
+    let prediction = trained.forward(input.clone()).into_data();
+    assert!(prediction.iter::<f32>().all(f32::is_finite));
+    assert_eq!(prediction, restored.forward(input.clone()).into_data());
+    // The returned model must have dropout disabled.
+    assert_eq!(prediction, trained.forward(input.clone()).into_data());
+
+    let first_epoch = model_config
+        .init(&device)
+        .try_load_file(artifact_dir.join("checkpoint/model-1.bpk"))
+        .unwrap()
+        .valid();
+    assert_ne!(prediction, first_epoch.forward(input).into_data());
+
+    for epoch in 1..=2 {
+        // Three training frames include a final partial batch each epoch.
+        for (split, batches) in [("train", 2), ("valid", 3)] {
+            let log = std::fs::read_to_string(
+                artifact_dir.join(format!("{split}/epoch-{epoch}/Loss.log")),
+            )
+            .unwrap();
+            // Burn writes one entry per batch followed by the epoch aggregate.
+            assert_eq!(log.lines().count(), batches + 1);
+        }
+
+        for component in ["model", "optim", "scheduler"] {
+            assert!(
+                artifact_dir
+                    .join(format!("checkpoint/{component}-{epoch}.bpk"))
+                    .is_file()
+            );
+        }
+    }
+
+    // A second run cannot overwrite this run's weights or metrics.
+    let error = train::<4, 2, 1>(&artifact_dir, config, device).unwrap_err();
+    assert!(error.to_string().contains("must be empty"));
+    assert!(artifact_dir.join("model.bpk").is_file());
+}
+
+#[test]
+fn cli_indexes_trains_and_evaluates_saved_weights() {
+    let directory = tempdir().unwrap();
+    let artifact_dir = directory.path().join("run with spaces");
+    let clean = wav(&[4096; 768], 16_000, 1);
+    let noisy = wav(&[8192; 768], 16_000, 1);
+    write_shard(
+        &directory.path().join("train-00000.parquet"),
+        &[Some("p226_001"), Some("p282_001"), Some("p287_001")],
+        &[Some(clean.as_slice()); 3],
+        &[Some(noisy.as_slice()); 3],
+    );
+
+    let run = |args: &[&str]| {
+        let output = std::process::Command::new(env!("CARGO_BIN_EXE_micro-autoenc"))
+            .args(args)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{args:?}:\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr),
+        );
+
+        String::from_utf8(output.stdout).unwrap()
+    };
+
+    let directory_arg = directory.path().to_str().unwrap();
+    let artifact_arg = artifact_dir.to_str().unwrap();
+    let indexed = run(&["index", directory_arg, "--split", "validation"]);
+    assert!(indexed.contains("2 recordings, 6 paired frames of 256 samples"));
+
+    // Exercise config loading and CLI overrides together. Training must never
+    // open the intentionally malformed test shard.
+    std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
+    let config_path = directory.path().join("input-config.json");
+    TrainingConfig::new(
+        AutoencoderConfig::new(256, 2, [6, 4], [4, 6]),
+        AdamConfig::new(),
+    )
+    .with_dataset_dir("missing-directory")
+    .save(&config_path)
+    .unwrap();
+    run(&[
+        "train",
+        directory_arg,
+        "--config",
+        config_path.to_str().unwrap(),
+        "--artifact-dir",
+        artifact_arg,
+        "--epochs",
+        "1",
+        "--batch-size",
+        "2",
+        "--shuffle-buffer-frames",
+        "2",
+        "--learning-rate",
+        "0.01",
+        "--seed",
+        "7",
+    ]);
+    let saved = TrainingConfig::<2, 2>::load(artifact_dir.join("config.json")).unwrap();
+    assert_eq!(saved.dataset_dir, directory.path());
+    assert_eq!(saved.model.encoder_hidden(), &[6, 4]);
+    assert_eq!(saved.num_epochs, 1);
+    assert_eq!(saved.batch_size, 2);
+    assert_eq!(saved.shuffle_buffer_frames, 2);
+    assert_eq!(saved.learning_rate, 0.01);
+    assert_eq!(saved.seed, 7);
+
+    let test_samples: Vec<i16> = [4096, 8192, 16384]
+        .into_iter()
+        .flat_map(|sample| [sample; 256])
+        .collect();
+    let test_noisy = wav(&test_samples, 16_000, 1);
+    let test_clean = wav(&[0; 768], 16_000, 1);
+    write_shard(
+        &directory.path().join("test-00000.parquet"),
+        &[Some("p232_001")],
+        &[Some(&test_clean)],
+        &[Some(&test_noisy)],
+    );
+
+    // Test must use the saved path and the official test split, with no reads of
+    // the source training shards and no writes to the saved model/configuration.
+    std::fs::write(directory.path().join("train-00000.parquet"), b"not parquet").unwrap();
+    let weights_before = std::fs::read(artifact_dir.join("model.bpk")).unwrap();
+    let mut predictions = Vec::new();
+
+    for batch_size in ["1", "2"] {
+        let output = run(&[
+            "test",
+            "--artifact-dir",
+            artifact_arg,
+            "--batch-size",
+            batch_size,
+        ]);
+        assert!(output.contains("Evaluated 3 frames from 1 recordings"));
+        assert!(output.contains("Noisy MSE: 0.10937500"));
+        let denoised_mse = output
+            .lines()
+            .find_map(|line| line.strip_prefix("Denoised MSE: "))
+            .unwrap()
+            .parse::<f64>()
+            .unwrap();
+        assert!(denoised_mse.is_finite());
+        predictions.push(denoised_mse);
+    }
+
+    assert!((predictions[0] - predictions[1]).abs() < 1.0e-6);
+    assert_eq!(
+        std::fs::read(artifact_dir.join("model.bpk")).unwrap(),
+        weights_before
+    );
+    assert_eq!(
+        TrainingConfig::<2, 2>::load(artifact_dir.join("config.json"))
+            .unwrap()
+            .to_string(),
+        saved.to_string()
     );
 }
 

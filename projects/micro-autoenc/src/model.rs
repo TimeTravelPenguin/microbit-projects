@@ -4,12 +4,6 @@ use burn::{
     tensor::{Device, Tensor},
 };
 
-#[cfg(feature = "train")]
-use burn::{
-    nn::loss::{MseLoss, Reduction},
-    train::{InferenceStep, RegressionOutput, TrainOutput, TrainStep},
-};
-
 /// A single hidden layer used by an [`MlpHalf`].
 ///
 /// The transformation performed is:
@@ -249,14 +243,23 @@ impl<const E: usize, const D: usize> Autoencoder<E, D> {
 /// The encoder always ends at `latent_size`, while the decoder always
 /// maps from `latent_size` back to `input_size`.
 #[derive(Clone, Copy, Debug)]
+#[cfg_attr(
+    feature = "train",
+    derive(burn::serde::Serialize, burn::serde::Deserialize)
+)]
+#[cfg_attr(feature = "train", serde(crate = "burn::serde"))]
 pub struct AutoencoderConfig<const E: usize, const D: usize> {
     input_size: usize,
     latent_size: usize,
 
+    #[cfg_attr(feature = "train", serde(with = "config_array"))]
     encoder_hidden: [usize; E],
+    #[cfg_attr(feature = "train", serde(with = "config_array"))]
     decoder_hidden: [usize; D],
 
+    #[cfg_attr(feature = "train", serde(with = "config_array"))]
     encoder_dropout: [f64; E],
+    #[cfg_attr(feature = "train", serde(with = "config_array"))]
     decoder_dropout: [f64; D],
 }
 
@@ -344,88 +347,26 @@ impl<const E: usize, const D: usize> AutoencoderConfig<E, D> {
     }
 }
 
-/// A training/validation/testing batch for a denoising autoencoder.
-///
-/// Both tensors have shape:
-///
-/// ```text
-/// [batch_size, input_size]
-/// ```
-///
-/// `noisy` is supplied to the autoencoder as its input.
-///
-/// `clean` is the reconstruction target.
+// Serde's built-in array implementations cover fixed lengths through 32, not
+// arbitrary const generics. Keep serialization out of the inference-only build.
 #[cfg(feature = "train")]
-#[derive(Clone, Debug)]
-pub struct DenoisingBatch {
-    pub noisy: Tensor<2>,
-    pub clean: Tensor<2>,
-}
+mod config_array {
+    use burn::serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 
-#[cfg(feature = "train")]
-impl DenoisingBatch {
-    /// Creates a denoising batch.
-    pub const fn new(noisy: Tensor<2>, clean: Tensor<2>) -> Self {
-        Self { noisy, clean }
+    pub fn serialize<T: Serialize, S: Serializer, const N: usize>(
+        values: &[T; N],
+        serializer: S,
+    ) -> Result<S::Ok, S::Error> {
+        values.as_slice().serialize(serializer)
     }
-}
 
-#[cfg(feature = "train")]
-impl<const E: usize, const D: usize> Autoencoder<E, D> {
-    /// Runs a denoising batch through the network and calculates MSE.
-    ///
-    /// This helper is shared by:
-    ///
-    /// - training,
-    /// - validation,
-    /// - testing/evaluation.
-    fn forward_regression(&self, batch: DenoisingBatch) -> RegressionOutput {
-        let targets = batch.clean;
-        let output = self.forward(batch.noisy);
+    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>, const N: usize>(
+        deserializer: D,
+    ) -> Result<[T; N], D::Error> {
+        let values = Vec::<T>::deserialize(deserializer)?;
 
-        let loss = MseLoss::new().forward(output.clone(), targets.clone(), Reduction::Mean);
-
-        RegressionOutput::new(loss, output, targets)
-    }
-}
-
-/// Training implementation.
-///
-/// This performs:
-///
-/// ```text
-/// noisy
-///   ↓
-/// autoencoder
-///   ↓
-/// reconstruction
-///   ↓
-/// MSE(reconstruction, clean)
-///   ↓
-/// backward()
-/// ```
-#[cfg(feature = "train")]
-impl<const E: usize, const D: usize> TrainStep for Autoencoder<E, D> {
-    type Input = DenoisingBatch;
-    type Output = RegressionOutput;
-
-    fn step(&self, batch: Self::Input) -> TrainOutput<Self::Output> {
-        let output = self.forward_regression(batch);
-        let gradients = output.loss.backward();
-
-        TrainOutput::new(self, gradients, output)
-    }
-}
-
-/// Validation and testing/evaluation implementation.
-///
-/// No backward pass is performed here.
-#[cfg(feature = "train")]
-impl<const E: usize, const D: usize> InferenceStep for Autoencoder<E, D> {
-    type Input = DenoisingBatch;
-    type Output = RegressionOutput;
-
-    fn step(&self, batch: Self::Input) -> Self::Output {
-        self.forward_regression(batch)
+        values.try_into().map_err(|values: Vec<T>| {
+            de::Error::custom(format_args!("expected {N} entries, got {}", values.len()))
+        })
     }
 }

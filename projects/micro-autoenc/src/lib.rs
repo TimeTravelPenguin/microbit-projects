@@ -3,9 +3,12 @@
 pub mod model;
 
 #[cfg(feature = "train")]
+pub mod training;
+
+#[cfg(feature = "train")]
 pub mod dataset;
 
 pub use model::{Autoencoder, AutoencoderConfig, DenseBlock, MlpHalf, MlpHalfConfig};
 
 #[cfg(feature = "train")]
-pub use model::DenoisingBatch;
+pub use training::DenoisingBatch;
