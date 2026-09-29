@@ -1,4 +1,4 @@
-# Streaming audio dataset loading
+# Audio dataset loading and training
 
 The `train` feature provides `dataset::VoiceBankDataset<N>` and
 `dataset::VoiceBankDataLoader<N>` for the locally downloaded
@@ -42,19 +42,56 @@ These are measured process peaks, including library overhead, not memory caps.
 From the workspace root:
 
 ```sh
-cargo run -p micro-autoenc
-cargo run -p micro-autoenc -- datasets/VoiceBank-DEMAND-16k/data validation
+cargo run -p micro-autoenc -- index
+cargo run -p micro-autoenc -- index datasets/VoiceBank-DEMAND-16k/data --split validation
 ```
 
 The default directory is anchored to the crate location, so the first command
 also works from `projects/micro-autoenc`. Explicit paths are relative to the
-working directory. The executable indexes the selected split, prints counts,
-and streams one `[32, 256]` batch on Burn's Flex CPU device. Training uses a
-4,096-frame shuffle buffer; validation keeps the source order. It does not start
-model training.
+working directory. The `index` command prints counts and streams one batch of up
+to 32 frames in source order on Burn's Flex CPU device.
 
-Use `test` as the final argument to explicitly open the official test shards.
+Use `--split test` to explicitly open the official test shards.
 Training and validation never open those shards.
+
+## Command-line training and evaluation
+
+The executable uses [Clap subcommands](https://docs.rs/clap/4.6.7/clap/_derive/_tutorial/index.html#subcommands).
+Use `--help`, `train --help`, or `test --help` to list options.
+
+```sh
+cargo run -p micro-autoenc -- train --artifact-dir artifacts/run-01 --epochs 10
+cargo run -p micro-autoenc -- test --artifact-dir artifacts/run-01
+```
+
+`train` uses the training shards with held-out speakers for validation. It streams
+both splits and saves the effective configuration and final weights in the run
+directory. Its optional positional directory overrides the configuration's data
+path. Options include `--epochs`, `--batch-size`, `--learning-rate`, `--seed`, and
+`--shuffle-buffer-frames`.
+
+The executable uses 256-sample frames and two hidden layers in each half, with a
+default architecture of `256 → 128 → 64 → 16 → 64 → 128 → 256`. `--config FILE`
+loads a `TrainingConfig<2, 2>` JSON, including widths, dropout, and validation
+speakers; explicit CLI options override its settings. This starts a fresh run,
+not a checkpoint resume. Other frame sizes/depths remain available through the
+library API.
+
+`test` loads `config.json` and `model.bpk` from the supplied run directory and
+evaluates the official test split by default. It prints the noisy-input baseline
+MSE and denoised MSE against clean audio, weighted by frame count so partial
+batches contribute correctly. It streams the whole split without training or
+writing to the run directory. Use `--split validation` for validation measurements,
+`--batch-size` to override the saved batch size, or a positional directory to
+relocate the dataset.
+
+Both commands default to CPU. On a compatible Mac, append `--device metal` to use
+Burn's Metal backend. For example:
+
+```sh
+cargo run -p micro-autoenc -- train datasets/VoiceBank-DEMAND-16k/data \
+  --artifact-dir artifacts/metal-run-01 --device metal
+```
 
 ## Use with Burn 0.22.0-pre.4
 
@@ -120,10 +157,66 @@ before framing. Pass the same held-out speaker list to both. The example uses
 holdout speakers are errors. An empty list trains on all source training speakers.
 Test reads only `test-*.parquet` and ignores the holdout list.
 
+## Train the autoencoder
+
+`training::train` connects the streaming loaders to Burn's `SupervisedTraining`:
+noisy frames are inputs, clean frames are targets, and both training and validation
+report mean squared error through `LossMetric`.
+
+The CLI uses this function. You can also call it from another training entry point:
+
+```rust
+use burn::{optim::AdamConfig, tensor::Device};
+use micro_autoenc::{
+    AutoencoderConfig,
+    training::{TrainingConfig, train},
+};
+
+fn main() -> anyhow::Result<()> {
+    let model = AutoencoderConfig::new(256, 16, [128, 64], [64, 128]);
+    let config = TrainingConfig::new(model, AdamConfig::new())
+        .with_dataset_dir("datasets/VoiceBank-DEMAND-16k/data")
+        .with_num_epochs(10)
+        .with_batch_size(64)
+        .with_shuffle_buffer_frames(4096);
+
+    let trained = train::<256, 2, 2>("artifacts/denoising-run-01", config, Device::flex())?;
+    // `trained` is ready for inference, with dropout disabled.
+
+    Ok(())
+}
+```
+
+The generic arguments are the frame size `N`, encoder depth `E`, and decoder depth
+`D`. The model's input size must equal `N`. Training uses autodiff on the supplied
+device; validation uses its inference device. Defaults are seed 42, Adam learning
+rate `1e-4`, and held-out speakers `p282` and `p287`. Override the speakers with
+`.with_validation_speakers(vec!["p282".into(), "p287".into()])`. Both splits must
+contain complete frames. Official test shards remain reserved for final evaluation.
+
+The artifact directory must be new or empty to prevent overwriting a previous
+run. It contains:
+
+- `config.json`, including dataset path, speaker split, and shuffle-buffer size.
+- Training/validation metrics, the experiment log, and Burn's retained model,
+  optimizer, and scheduler checkpoints under `checkpoint/`.
+- `model.bpk`, the final epoch's weights (not an automatic selection of the best
+  validation checkpoint).
+
+The function returns `anyhow::Result<Autoencoder<E, D>>`. Configuration, indexing,
+and final-save failures propagate as errors. An interruption or streaming read
+failure also returns an error and skips the final export. Completed checkpoints
+remain on disk. Burn's internal backend/checkpoint failures can still panic.
+
+`shuffle_buffer_frames` replaces the tutorial's `num_workers`: the streaming
+loader reads one row group at a time without worker prefetch queues. It retains
+the same bounded audio buffers during training. Model tensors, gradients, Adam
+state, and checkpoints add their own memory use.
+
 ## Verification and embedded builds
 
 ```sh
-cargo test -p micro-autoenc --test dataset
+cargo test -p micro-autoenc
 cargo check -p micro-autoenc --no-default-features --lib
 ```
 
@@ -137,6 +230,10 @@ MICRO_AUTOENC_DATASET="$PWD/datasets/VoiceBank-DEMAND-16k/data" \
 Tests cover paired values and frame boundaries, speaker separation, multi-group
 streaming, repeatable epochs, bounded shuffling without dropped/duplicate frames,
 partial batches, progress, device transfer, slices, and deferred read failures.
+The training smoke test runs two CPU epochs on small synthetic Parquet shards,
+checks both splits' batch counts, and reloads the exported weights for inference.
+The CLI smoke test invokes `index`, `train`, and `test` in separate processes,
+checks configuration overrides, and verifies evaluation agrees across batch sizes.
 
 Polars, Hound, Rand, Anyhow, and all dataset/executable code are gated behind
 `train`. The feature-disabled host check does not establish micro:bit firmware

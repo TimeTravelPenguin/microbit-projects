@@ -3,6 +3,11 @@ name = "micro-autoenc"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "micro-autoenc"
+path = "src/main.rs"
+required-features = ["train"]
+
 [dependencies]
 anyhow = { version = "1", optional = true }
 burn = {
@@ -10,40 +15,43 @@ burn = {
   default-features = false,
   features = ["flex"],
 }
+clap = { version = "4.6.7", features = ["derive", "wrap_help"], optional = true }
 hound = { version = "3.5", optional = true }
-rand = { version = "0.10", optional = true }
 polars = {
   version = "0.55",
   default-features = false,
-  optional = true,
   features = [
     "dtype-struct",
     "parquet",
   ],
+  optional = true,
 }
+rand = { version = "0.10", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
 
 [features]
 default = ["train"]
 train = [
-  "dep:anyhow",
-  "dep:hound",
-  "dep:polars",
-  "dep:rand",
   "burn/extension",
   "burn/metal",
   "burn/metrics",
   "burn/std",
   "burn/train",
   "burn/tui",
+  "dep:anyhow",
+  "dep:clap",
+  "dep:hound",
+  "dep:polars",
+  "dep:rand",
 ]
-
-[[bin]]
-name = "micro-autoenc"
-path = "src/main.rs"
-required-features = ["train"]
-
-[dev-dependencies]
-tempfile = "3"
 
 [lints]
 workspace = true
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+codegen-units = 1

@@ -1,5 +1,6 @@
 #![cfg_attr(not(feature = "train"), no_std)]
 
+pub mod cli;
 pub mod model;
 
 #[cfg(feature = "train")]
