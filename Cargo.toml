@@ -4,3 +4,9 @@ members = ["projects/*"]
 
 [workspace.lints.clippy]
 nursery = "allow"
+
+[profile.release]
+opt-level = 3
+strip = true
+lto = true
+codegen-units = 1

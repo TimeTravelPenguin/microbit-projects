@@ -32,7 +32,8 @@ rand = { version = "0.10", optional = true }
 tempfile = "3"
 
 [features]
-default = ["train"]
+default = ["cli", "train"]
+cli = ["dep:clap"]
 train = [
   "burn/extension",
   "burn/metal",
@@ -49,9 +50,3 @@ train = [
 
 [lints]
 workspace = true
-
-[profile.release]
-opt-level = 3
-strip = true
-lto = true
-codegen-units = 1
