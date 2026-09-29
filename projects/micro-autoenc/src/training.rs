@@ -17,7 +17,7 @@ use burn::{
         InferenceStep, Learner, MetricEarlyStoppingStrategy, RegressionOutput, StoppingCondition,
         SupervisedTraining, TrainOutput, TrainStep,
         metric::{
-            IterationSpeedMetric, LearningRateMetric, LossMetric,
+            LearningRateMetric, LossMetric,
             store::{Aggregate, Direction, Split},
         },
     },
@@ -27,6 +27,11 @@ use crate::{
     Autoencoder, AutoencoderConfig,
     dataset::{DatasetSplit, VoiceBankDataLoader, VoiceBankDataset},
 };
+
+pub const DEFAULT_NUM_EPOCHS: usize = 50;
+pub const DEFAULT_BATCH_SIZE: usize = 64;
+pub const DEFAULT_SHUFFLE_BUFFER_FRAMES: usize = 4096;
+pub const DEFAULT_SEED: u64 = 42;
 
 /// A training/validation/testing batch for a denoising autoencoder.
 ///
@@ -120,6 +125,7 @@ pub struct TrainingConfig<const E: usize = 4, const D: usize = 4> {
     pub optimizer: AdamConfig,
     pub num_epochs: usize,
     pub batch_size: usize,
+    pub patience: Option<usize>,
     pub seed: u64,
 
     /// Directory containing the downloaded VoiceBank Parquet shards.
@@ -154,10 +160,11 @@ impl<const E: usize, const D: usize> TrainingConfig<E, D> {
             optimizer,
             dataset_dir: default_dataset_dir(),
             validation_speakers: default_validation_speakers(),
-            num_epochs: 50,
-            batch_size: 64,
+            num_epochs: DEFAULT_NUM_EPOCHS,
+            batch_size: DEFAULT_BATCH_SIZE,
             shuffle_buffer_frames: default_shuffle_buffer_frames(),
-            seed: 42,
+            patience: None,
+            seed: DEFAULT_SEED,
             max_learning_rate: default_max_learning_rate(),
             min_learning_rate: default_min_learning_rate(),
             warmup_fraction: default_warmup_fraction(),
@@ -227,7 +234,10 @@ impl<const E: usize, const D: usize> std::fmt::Display for TrainingConfig<E, D> 
 }
 
 fn default_dataset_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../datasets/VoiceBank-DEMAND-16k/data")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../datasets/VoiceBank-DEMAND-16k/data")
+        .canonicalize()
+        .expect("canonicalizing default dataset directory should not fail")
 }
 
 fn default_validation_speakers() -> Vec<String> {
@@ -354,9 +364,7 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
     );
 
     let warmup_steps = (total_steps as f64 * config.warmup_fraction).round() as usize;
-
     let warmup_steps = warmup_steps.clamp(1, total_steps - 1);
-
     let cosine_steps = total_steps - warmup_steps;
 
     let lr_scheduler = SequentialLrSchedulerConfig::new(
@@ -388,18 +396,27 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         .save(artifact_dir.join("config.json"))
         .context("saving training configuration")?;
 
-    let training = SupervisedTraining::new(artifact_dir, dataloader_train, dataloader_valid)
+    let mut training = SupervisedTraining::new(artifact_dir, dataloader_train, dataloader_valid)
         .metric_train_numeric(LossMetric::new())
-        .metric_train(IterationSpeedMetric::new())
         .metric_valid_numeric(LossMetric::new())
-        .metric_train_numeric(LearningRateMetric::new())
-        .early_stopping(MetricEarlyStoppingStrategy::new(
+        .metric_train_numeric(LearningRateMetric::new());
+
+    if let Some(patience) = config.patience {
+        ensure!(
+            patience > 0,
+            "patience must be greater than zero if early stopping is enabled"
+        );
+
+        training = training.early_stopping(MetricEarlyStoppingStrategy::new(
             &LossMetric::new(),
             Aggregate::Mean,
             Direction::Lowest,
             Split::Valid,
-            StoppingCondition::NoImprovementSince { n_epochs: 7 },
-        ))
+            StoppingCondition::NoImprovementSince { n_epochs: patience },
+        ));
+    }
+
+    training = training
         .with_default_checkpointers()
         .num_epochs(config.num_epochs)
         .summary();
