@@ -18,7 +18,7 @@ use micro_autoenc::{
 
 /// The number of samples per frame for the autoencoder.
 const FRAME_SIZE: usize = 256;
-type ProjectTrainingConfig = TrainingConfig<3, 3>;
+type ProjectTrainingConfig = TrainingConfig<1, 1>;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -37,8 +37,7 @@ fn main() -> Result<()> {
 
 fn default_config() -> ProjectTrainingConfig {
     TrainingConfig::new(
-        AutoencoderConfig::new(FRAME_SIZE, 16, [256, 128, 64], [64, 128, 256])
-            .with_dropout([0.1, 0.1, 0.1], [0.1, 0.1, 0.1]),
+        AutoencoderConfig::new(FRAME_SIZE, 8, [32], [32]).with_dropout([0.05], [0.0]),
         AdamConfig::new(),
     )
 }
