@@ -16,8 +16,9 @@ use micro_autoenc::{
     training::{TrainingConfig, train},
 };
 
+/// The number of samples per frame for the autoencoder.
 const FRAME_SIZE: usize = 256;
-type ProjectTrainingConfig = TrainingConfig<2, 2>;
+type ProjectTrainingConfig = TrainingConfig<3, 3>;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -36,7 +37,8 @@ fn main() -> Result<()> {
 
 fn default_config() -> ProjectTrainingConfig {
     TrainingConfig::new(
-        AutoencoderConfig::new(FRAME_SIZE, 16, [128, 64], [64, 128]),
+        AutoencoderConfig::new(FRAME_SIZE, 16, [256, 128, 64], [64, 128, 256])
+            .with_dropout([0.1, 0.1, 0.1], [0.1, 0.1, 0.1]),
         AdamConfig::new(),
     )
 }
@@ -118,7 +120,7 @@ fn run_training(args: TrainArgs, device: ComputeDevice) -> Result<()> {
     println!("Training from {}", config.dataset_dir.display());
     println!("Artifacts: {}", args.artifact_dir.display());
 
-    train::<FRAME_SIZE, 2, 2>(&args.artifact_dir, config, device.init())?;
+    train::<FRAME_SIZE, _, _>(&args.artifact_dir, config, device.init())?;
 
     println!(
         "Saved trained weights to {}",

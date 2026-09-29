@@ -1,7 +1,9 @@
 #![cfg_attr(not(feature = "train"), no_std)]
 
-pub mod cli;
 pub mod model;
+
+#[cfg(feature = "cli")]
+pub mod cli;
 
 #[cfg(feature = "train")]
 pub mod training;

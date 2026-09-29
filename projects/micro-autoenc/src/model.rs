@@ -1,6 +1,6 @@
 use burn::{
     module::Module,
-    nn::{Dropout, DropoutConfig, Linear, LinearConfig, Relu},
+    nn::{Dropout, DropoutConfig, LeakyRelu, LeakyReluConfig, Linear, LinearConfig},
     tensor::{Device, Tensor},
 };
 
@@ -29,7 +29,7 @@ use burn::{
 #[derive(Module, Debug)]
 pub struct DenseBlock {
     linear: Linear,
-    activation: Relu,
+    activation: LeakyRelu,
     dropout: Dropout,
 }
 
@@ -38,7 +38,7 @@ impl DenseBlock {
     fn new(d_input: usize, d_output: usize, dropout: f64, device: &Device) -> Self {
         Self {
             linear: LinearConfig::new(d_input, d_output).init(device),
-            activation: Relu::new(),
+            activation: LeakyReluConfig::new().init(),
             dropout: DropoutConfig::new(dropout).init(),
         }
     }

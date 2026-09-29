@@ -9,8 +9,12 @@ use burn::{
     optim::AdamConfig,
     prelude::*,
     train::{
-        InferenceStep, Learner, RegressionOutput, SupervisedTraining, TrainOutput, TrainStep,
-        metric::LossMetric,
+        EarlyStoppingStrategy, InferenceStep, Learner, MetricEarlyStoppingStrategy,
+        RegressionOutput, StoppingCondition, SupervisedTraining, TrainOutput, TrainStep,
+        metric::{
+            IterationSpeedMetric, LearningRateMetric, LossMetric,
+            store::{Aggregate, Direction, Split},
+        },
     },
 };
 
@@ -131,7 +135,7 @@ impl<const E: usize, const D: usize> TrainingConfig<E, D> {
             optimizer,
             dataset_dir: default_dataset_dir(),
             validation_speakers: default_validation_speakers(),
-            num_epochs: 10,
+            num_epochs: 50,
             batch_size: 64,
             shuffle_buffer_frames: default_shuffle_buffer_frames(),
             seed: 42,
@@ -248,6 +252,7 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
     let artifact_dir = artifact_dir.as_ref();
     std::fs::create_dir_all(artifact_dir)
         .with_context(|| format!("creating artifact directory {}", artifact_dir.display()))?;
+
     ensure!(
         std::fs::read_dir(artifact_dir)?
             .next()
@@ -262,9 +267,11 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         .iter()
         .map(String::as_str)
         .collect();
+
     let dataset_train =
         VoiceBankDataset::<N>::load(&config.dataset_dir, DatasetSplit::Train, &held_out)
             .context("indexing training audio")?;
+
     let dataset_valid =
         VoiceBankDataset::<N>::load(&config.dataset_dir, DatasetSplit::Validation, &held_out)
             .context("indexing validation audio")?;
@@ -289,7 +296,17 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         .context("saving training configuration")?;
 
     let training = SupervisedTraining::new(artifact_dir, dataloader_train, dataloader_valid)
-        .metrics((LossMetric::new(),))
+        .metric_train(IterationSpeedMetric::new())
+        .metric_train_numeric(LossMetric::new())
+        .metric_valid_numeric(LossMetric::new())
+        .metric_train_numeric(LearningRateMetric::new())
+        .early_stopping(MetricEarlyStoppingStrategy::new(
+            &LossMetric::new(),
+            Aggregate::Mean,
+            Direction::Lowest,
+            Split::Valid,
+            StoppingCondition::NoImprovementSince { n_epochs: 7 },
+        ))
         .with_default_checkpointers()
         .num_epochs(config.num_epochs)
         .summary();
