@@ -1,0 +1,4 @@
+download_dataset:
+    hf download JacobLinCool/VoiceBank-DEMAND-16k \ 
+      --repo-type dataset \ 
+      --local-dir ../../datasets/VoiceBank-DEMAND-16k

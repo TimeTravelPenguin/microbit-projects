@@ -1,0 +1,28 @@
+[package]
+name = "micro-autoenc"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+anyhow = "1"
+burn = {
+  version = "0.22.0-pre.4",
+  default-features = false,
+  features = ["flex"],
+}
+hound = "3.5"
+polars = {
+  version = "0.55",
+  features = [
+    "dtype-struct",
+    "lazy",
+    "parquet",
+  ],
+}
+
+[features]
+default = ["train"]
+train = ["burn/extension", "burn/metal", "burn/metrics", "burn/std", "burn/train", "burn/tui"]
+
+[lints]
+workspace = true
