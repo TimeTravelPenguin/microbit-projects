@@ -4629,6 +4629,7 @@ dependencies = [
  "hound",
  "polars",
  "rand 0.10.3",
+ "serde_json",
  "tempfile",
 ]
 

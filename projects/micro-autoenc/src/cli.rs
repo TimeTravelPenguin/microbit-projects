@@ -21,6 +21,8 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum CliCommand {
+    /// Print the default training configuration
+    Config,
     /// Index a VoiceBank split, print counts, and preview one batch
     Index {
         /// Directory containing Parquet shards (defaults to the local download)
@@ -54,6 +56,7 @@ pub enum CliCommand {
 }
 
 #[derive(Args)]
+#[command(after_help = "See the default configuration value with the `config` command.")]
 pub struct TrainArgs {
     /// Parquet directory (overrides the configuration)
     #[arg(value_name = "PARQUET_DIRECTORY")]
@@ -67,19 +70,19 @@ pub struct TrainArgs {
     #[arg(long, value_name = "FILE")]
     pub config: Option<PathBuf>,
 
-    /// Override the number of epochs (default configuration: 10)
+    /// Override the number of epochs
     #[arg(long)]
     pub epochs: Option<NonZeroUsize>,
 
-    /// Override the batch size (default configuration: 64)
+    /// Override the batch size
     #[arg(long)]
     pub batch_size: Option<NonZeroUsize>,
 
-    /// Override the bounded shuffle buffer size in frames (default: 4096)
+    /// Override the bounded shuffle buffer size in frames
     #[arg(long)]
     pub shuffle_buffer_frames: Option<NonZeroUsize>,
 
-    /// Override the random seed (default: 42)
+    /// Override the random seed
     #[arg(long)]
     pub seed: Option<u64>,
 }

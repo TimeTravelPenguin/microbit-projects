@@ -24,6 +24,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match cli.command {
+        CliCommand::Config => {
+            let config = default_config();
+            println!("{}", serde_json::to_string_pretty(&config)?);
+            Ok(())
+        }
         CliCommand::Index { directory, split } => index(directory, split, cli.device),
         CliCommand::Train(args) => run_training(args, cli.device),
         CliCommand::Test {
