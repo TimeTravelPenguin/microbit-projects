@@ -10,14 +10,16 @@ use tempfile::tempdir;
 #[test]
 fn generic_training_config_roundtrips_through_burn_file_api() {
     let model = AutoencoderConfig::new(8, 2, [6, 4], [5]).with_dropout([0.1, 0.2], [0.3]);
-    let config: TrainingConfig<2, 1> = TrainingConfig::new(model, AdamConfig::new())
+    let mut config: TrainingConfig<2, 1> = TrainingConfig::new(model, AdamConfig::new())
         .with_num_epochs(3)
         .with_batch_size(7)
         .with_dataset_dir("audio/shards")
         .with_validation_speakers(vec!["p282".into()])
         .with_shuffle_buffer_frames(13)
         .with_seed(11)
-        .with_learning_rate(0.001);
+        .with_learning_rate_range(0.0001, 0.001)
+        .with_warmup_fraction(0.2);
+    config.patience = Some(4);
 
     let directory = tempdir().unwrap();
     let path = directory.path().join("config.json");
@@ -36,7 +38,10 @@ fn generic_training_config_roundtrips_through_burn_file_api() {
     assert_eq!(restored.validation_speakers, ["p282"]);
     assert_eq!(restored.shuffle_buffer_frames, 13);
     assert_eq!(restored.seed, 11);
-    assert_eq!(restored.learning_rate, 0.001);
+    assert_eq!(restored.min_learning_rate, 0.0001);
+    assert_eq!(restored.max_learning_rate, 0.001);
+    assert_eq!(restored.warmup_fraction, 0.2);
+    assert_eq!(restored.patience, Some(4));
     assert_eq!(restored.to_string(), config.to_string());
 }
 
@@ -47,7 +52,7 @@ fn default_depths_and_constructor_defaults_are_preserved() {
         AdamConfig::new(),
     );
 
-    assert_eq!(config.num_epochs, 10);
+    assert_eq!(config.num_epochs, 50);
     assert_eq!(config.batch_size, 64);
     assert!(
         config
@@ -57,7 +62,10 @@ fn default_depths_and_constructor_defaults_are_preserved() {
     assert_eq!(config.validation_speakers, ["p282", "p287"]);
     assert_eq!(config.shuffle_buffer_frames, 4096);
     assert_eq!(config.seed, 42);
-    assert_eq!(config.learning_rate, 1.0e-4);
+    assert_eq!(config.min_learning_rate, 1.0e-5);
+    assert_eq!(config.max_learning_rate, 1.0e-3);
+    assert_eq!(config.warmup_fraction, 0.05);
+    assert_eq!(config.patience, None);
 }
 
 #[test]
@@ -118,8 +126,36 @@ fn invalid_training_settings_fail_before_creating_artifacts() {
             config.clone().with_shuffle_buffer_frames(0),
             "shuffle buffer size",
         ),
-        (config.clone().with_learning_rate(f64::NAN), "learning rate"),
-        (config.clone().with_learning_rate(0.0), "learning rate"),
+        (
+            config.clone().with_learning_rate_range(f64::NAN, 0.001),
+            "minimum learning rate",
+        ),
+        (
+            config.clone().with_learning_rate_range(0.0, 0.001),
+            "minimum learning rate",
+        ),
+        (
+            config.clone().with_learning_rate_range(0.0001, f64::NAN),
+            "maximum learning rate",
+        ),
+        (
+            config.clone().with_learning_rate_range(0.0001, 0.0),
+            "maximum learning rate",
+        ),
+        (
+            config.clone().with_learning_rate_range(0.0001, 0.0001),
+            "maximum learning rate",
+        ),
+        (
+            config.clone().with_learning_rate_range(0.0001, 1.1),
+            "maximum learning rate",
+        ),
+        (
+            config.clone().with_warmup_fraction(f64::NAN),
+            "warmup fraction",
+        ),
+        (config.clone().with_warmup_fraction(0.0), "warmup fraction"),
+        (config.clone().with_warmup_fraction(1.0), "warmup fraction"),
         (config.with_validation_speakers(vec![]), "held-out speaker"),
     ] {
         let error = train::<8, 2, 1>(&artifact_dir, invalid, device.clone()).unwrap_err();

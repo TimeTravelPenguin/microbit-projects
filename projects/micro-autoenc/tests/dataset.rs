@@ -562,7 +562,7 @@ fn training_streams_audio_for_multiple_epochs_and_exports_reloadable_weights() {
         .with_num_epochs(2)
         .with_batch_size(2)
         .with_shuffle_buffer_frames(2)
-        .with_learning_rate(0.01);
+        .with_learning_rate_range(0.0001, 0.01);
     let device = Device::flex();
     let trained = train::<4, 2, 1>(&artifact_dir, config.clone(), device.clone()).unwrap();
     let restored_config = TrainingConfig::<2, 1>::load(artifact_dir.join("config.json")).unwrap();
@@ -628,6 +628,7 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
 
     let run = |args: &[&str]| {
         let output = std::process::Command::new(env!("CARGO_BIN_EXE_micro-autoenc"))
+            .args(["--device", "cpu"])
             .args(args)
             .output()
             .unwrap();
@@ -650,13 +651,12 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
     // open the intentionally malformed test shard.
     std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
     let config_path = directory.path().join("input-config.json");
-    TrainingConfig::new(
-        AutoencoderConfig::new(256, 2, [6, 4], [4, 6]),
-        AdamConfig::new(),
-    )
-    .with_dataset_dir("missing-directory")
-    .save(&config_path)
-    .unwrap();
+    TrainingConfig::new(AutoencoderConfig::new(256, 2, [6], [6]), AdamConfig::new())
+        .with_dataset_dir("missing-directory")
+        .with_learning_rate_range(0.0001, 0.01)
+        .with_warmup_fraction(0.25)
+        .save(&config_path)
+        .unwrap();
     run(&[
         "train",
         directory_arg,
@@ -670,18 +670,19 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
         "2",
         "--shuffle-buffer-frames",
         "2",
-        "--learning-rate",
-        "0.01",
         "--seed",
         "7",
     ]);
-    let saved = TrainingConfig::<2, 2>::load(artifact_dir.join("config.json")).unwrap();
+    let saved = TrainingConfig::<1, 1>::load(artifact_dir.join("config.json")).unwrap();
     assert_eq!(saved.dataset_dir, directory.path());
-    assert_eq!(saved.model.encoder_hidden(), &[6, 4]);
+    assert_eq!(saved.model.encoder_hidden(), &[6]);
+    assert_eq!(saved.model.decoder_hidden(), &[6]);
     assert_eq!(saved.num_epochs, 1);
     assert_eq!(saved.batch_size, 2);
     assert_eq!(saved.shuffle_buffer_frames, 2);
-    assert_eq!(saved.learning_rate, 0.01);
+    assert_eq!(saved.min_learning_rate, 0.0001);
+    assert_eq!(saved.max_learning_rate, 0.01);
+    assert_eq!(saved.warmup_fraction, 0.25);
     assert_eq!(saved.seed, 7);
 
     let test_samples: Vec<i16> = [4096, 8192, 16384]
@@ -729,7 +730,7 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
         weights_before
     );
     assert_eq!(
-        TrainingConfig::<2, 2>::load(artifact_dir.join("config.json"))
+        TrainingConfig::<1, 1>::load(artifact_dir.join("config.json"))
             .unwrap()
             .to_string(),
         saved.to_string()
