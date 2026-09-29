@@ -1,40 +1,54 @@
-use std::fs;
+use std::{env, path::PathBuf};
 
-use burn::{
-    backend::{Autodiff, Wgpu, WgpuDevice, wgpu::graphics::WebGpu},
-    prelude::*,
-};
+use anyhow::{Context, Result, bail, ensure};
+use burn::{data::dataloader::DataLoader, tensor::Device};
+use micro_autoenc::dataset::{DatasetSplit, VoiceBankDataLoader, VoiceBankDataset};
 
-const DATASET_PATH: &str = "../datasets/VoiceBank-DEMAND-16k/data";
+const FRAME_SIZE: usize = 256;
+const VALIDATION_SPEAKERS: &[&str] = &["p282", "p287"];
 
-fn main() {
-    // let device = Device::wgpu(Default::default());
+fn main() -> Result<()> {
+    let mut args = env::args_os().skip(1);
+    let directory = args.next().map(PathBuf::from).unwrap_or_else(|| {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../datasets/VoiceBank-DEMAND-16k/data")
+    });
 
-    // All the training artifacts will be saved in this directory
-    let artifact_dir = "artifacts";
+    let split = match args.next() {
+        None => DatasetSplit::Train,
+        Some(arg) => match arg.to_str() {
+            Some("train") => DatasetSplit::Train,
+            Some("validation") => DatasetSplit::Validation,
+            Some("test") => DatasetSplit::Test,
+            _ => bail!("unknown split {arg:?}; use train, validation, or test"),
+        },
+    };
 
-    // Train the model
-    // training::train::<MyAutodiffBackend>(
-    //     artifact_dir,
-    //     TrainingConfig::new(ModelConfig::new(10, 512), AdamConfig::new()),
-    //     device.clone(),
-    // );
-    //
-    // // Infer the model
-    // inference::infer::<MyBackend>(
-    //     artifact_dir,
-    //     device,
-    //     burn::data::dataset::vision::MnistDataset::test()
-    //         .get(42)
-    //         .unwrap(),
-    // );
+    ensure!(
+        args.next().is_none(),
+        "usage: micro-autoenc [parquet-directory] [train|validation|test]"
+    );
 
-    let dataset = fs::read_dir(DATASET_PATH).unwrap();
-    println!("Dataset files:");
-    for entry in dataset {
-        let entry = entry.unwrap();
-        let path = entry.path();
+    println!("Indexing {split:?} from {}...", directory.display());
+    let dataset = VoiceBankDataset::<FRAME_SIZE>::load(&directory, split, VALIDATION_SPEAKERS)?;
+    println!(
+        "{} recordings, {} paired frames of {FRAME_SIZE} samples",
+        dataset.recording_count(),
+        dataset.len(),
+    );
 
-        println!("{}", path.display());
-    }
+    let loader = VoiceBankDataLoader::new(dataset, 32, Device::flex())?;
+    let loader = if split == DatasetSplit::Train {
+        loader.shuffle(42, 4096)?
+    } else {
+        loader
+    };
+
+    let batch = loader.iter().next().context("dataset has no batches")??;
+    println!(
+        "First batch: noisy {:?}, clean {:?}",
+        batch.noisy.dims(),
+        batch.clean.dims(),
+    );
+
+    Ok(())
 }
