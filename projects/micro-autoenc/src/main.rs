@@ -1,4 +1,4 @@
-use std::{num::NonZeroUsize, path::PathBuf};
+use std::{fs, num::NonZeroUsize, path::PathBuf};
 
 use anyhow::{Context, Result, ensure};
 use burn::{
@@ -18,7 +18,7 @@ use micro_autoenc::{
 
 /// The number of samples per frame for the autoencoder.
 const FRAME_SIZE: usize = 256;
-type ProjectTrainingConfig = TrainingConfig<1, 1>;
+type ProjectTrainingConfig = TrainingConfig<2, 2>;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -42,7 +42,7 @@ fn main() -> Result<()> {
 
 fn default_config() -> ProjectTrainingConfig {
     TrainingConfig::new(
-        AutoencoderConfig::new(FRAME_SIZE, 8, [32], [32]).with_dropout([0.05], [0.0]),
+        AutoencoderConfig::new(FRAME_SIZE, 8, [64, 32], [32, 64]).with_dropout([0.05; 2], [0.0; 2]),
         AdamConfig::new(),
     )
 }

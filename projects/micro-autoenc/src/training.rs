@@ -28,6 +28,8 @@ use crate::{
     dataset::{DatasetSplit, VoiceBankDataLoader, VoiceBankDataset},
 };
 
+mod export;
+
 pub const DEFAULT_NUM_EPOCHS: usize = 50;
 pub const DEFAULT_BATCH_SIZE: usize = 64;
 pub const DEFAULT_SHUFFLE_BUFFER_FRAMES: usize = 4096;
@@ -269,7 +271,9 @@ const fn default_warmup_fraction() -> f64 {
 ///
 /// Use a new or empty artifact directory. Saves `config.json`, Burn's metrics and
 /// checkpoints, and the final epoch's weights as `model.bpk`. Returns the trained
-/// model in inference mode. An interrupted run returns an error without exporting
+/// model after exporting numeric metric CSVs and Plotters SVGs to `exports/`.
+/// Export failures return an error but leave the saved weights available.
+/// The model is in inference mode. An interrupted run returns an error without exporting
 /// a final model; any completed checkpoints remain available.
 pub fn train<const N: usize, const E: usize, const D: usize>(
     artifact_dir: impl AsRef<Path>,
@@ -303,7 +307,7 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
             && config.max_learning_rate > config.min_learning_rate
             && config.max_learning_rate <= 1.0,
         "maximum learning rate must be finite, greater than the minimum \
-     learning rate, and at most 1"
+        learning rate, and at most 1"
     );
     ensure!(
         config.warmup_fraction.is_finite()
@@ -441,6 +445,11 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         .into_record()
         .save(artifact_dir.join("model.bpk"))
         .context("saving trained model")?;
+
+    // launch has joined Burn's metric writer threads before returning, so these
+    // logs include their final epoch aggregates without polling or sleeps.
+    export::export_metrics(artifact_dir)
+        .context("training completed and model.bpk was saved, but exporting metrics failed")?;
 
     Ok(result.model)
 }

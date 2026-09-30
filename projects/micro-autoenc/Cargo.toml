@@ -16,7 +16,9 @@ burn = {
   features = ["flex"],
 }
 clap = { version = "4.6.7", features = ["derive", "wrap_help"], optional = true }
+csv = { version = "1.4", optional = true }
 hound = { version = "3.5", optional = true }
+plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "line_series"], optional = true }
 polars = {
   version = "0.55",
   default-features = false,
@@ -44,7 +46,9 @@ train = [
   "burn/tui",
   "dep:anyhow",
   "dep:clap",
+  "dep:csv",
   "dep:hound",
+  "dep:plotters",
   "dep:polars",
   "dep:rand",
 ]

@@ -607,6 +607,36 @@ fn training_streams_audio_for_multiple_epochs_and_exports_reloadable_weights() {
         }
     }
 
+    for (name, batches) in [
+        ("train_loss", 4),
+        ("valid_loss", 6),
+        ("train_learning_rate", 4),
+    ] {
+        let csv =
+            std::fs::read_to_string(artifact_dir.join(format!("exports/{name}.csv"))).unwrap();
+        assert_eq!(csv.lines().next(), Some("epoch,batch,step,value,weight"));
+        assert_eq!(csv.lines().count(), batches + 1);
+    }
+
+    let epochs = std::fs::read_to_string(artifact_dir.join("exports/epoch_metrics.csv")).unwrap();
+    assert_eq!(epochs.lines().count(), 7);
+
+    for name in [
+        "loss_by_epoch",
+        "learning_rate_by_epoch",
+        "train_loss_by_step",
+        "valid_loss_by_step",
+        "train_learning_rate_by_step",
+    ] {
+        let svg =
+            std::fs::read_to_string(artifact_dir.join(format!("exports/{name}.svg"))).unwrap();
+        assert!(svg.contains("<svg"), "{name} is not an SVG graph");
+        assert!(
+            svg.contains("</svg>"),
+            "{name} was not finished before train returned"
+        );
+    }
+
     // A second run cannot overwrite this run's weights or metrics.
     let error = train::<4, 2, 1>(&artifact_dir, config, device).unwrap_err();
     assert!(error.to_string().contains("must be empty"));
@@ -651,12 +681,15 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
     // open the intentionally malformed test shard.
     std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
     let config_path = directory.path().join("input-config.json");
-    TrainingConfig::new(AutoencoderConfig::new(256, 2, [6], [6]), AdamConfig::new())
-        .with_dataset_dir("missing-directory")
-        .with_learning_rate_range(0.0001, 0.01)
-        .with_warmup_fraction(0.25)
-        .save(&config_path)
-        .unwrap();
+    TrainingConfig::new(
+        AutoencoderConfig::new(256, 2, [6, 4], [4, 6]),
+        AdamConfig::new(),
+    )
+    .with_dataset_dir("missing-directory")
+    .with_learning_rate_range(0.0001, 0.01)
+    .with_warmup_fraction(0.25)
+    .save(&config_path)
+    .unwrap();
     run(&[
         "train",
         directory_arg,
@@ -673,10 +706,10 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
         "--seed",
         "7",
     ]);
-    let saved = TrainingConfig::<1, 1>::load(artifact_dir.join("config.json")).unwrap();
+    let saved = TrainingConfig::<2, 2>::load(artifact_dir.join("config.json")).unwrap();
     assert_eq!(saved.dataset_dir, directory.path());
-    assert_eq!(saved.model.encoder_hidden(), &[6]);
-    assert_eq!(saved.model.decoder_hidden(), &[6]);
+    assert_eq!(saved.model.encoder_hidden(), &[6, 4]);
+    assert_eq!(saved.model.decoder_hidden(), &[4, 6]);
     assert_eq!(saved.num_epochs, 1);
     assert_eq!(saved.batch_size, 2);
     assert_eq!(saved.shuffle_buffer_frames, 2);
@@ -730,7 +763,7 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
         weights_before
     );
     assert_eq!(
-        TrainingConfig::<1, 1>::load(artifact_dir.join("config.json"))
+        TrainingConfig::<2, 2>::load(artifact_dir.join("config.json"))
             .unwrap()
             .to_string(),
         saved.to_string()

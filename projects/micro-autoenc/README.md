@@ -202,9 +202,27 @@ run. It contains:
   optimizer, and scheduler checkpoints under `checkpoint/`.
 - `model.bpk`, the final epoch's weights (not an automatic selection of the best
   validation checkpoint).
+- `exports/`, with CSVs and SVG graphs generated automatically using
+  [Plotters](https://github.com/plotters-rs/plotters) when training finishes,
+  including when early stopping ends the run.
+
+The exports include training and validation loss, plus the training learning rate.
+Each metric gets a CSV containing every logged batch and a graph against batch
+step. `epoch_metrics.csv` contains Burn's final epoch aggregates;
+`loss_by_epoch.svg` compares training and validation, and
+`learning_rate_by_epoch.svg` shows the mean learning rate for each epoch.
+The CSV columns and aggregation details are documented in `exports/README.txt`.
+
+Export reads metric logs sequentially. Batch graphs retain the first, minimum,
+maximum, and last point in each of at most 2,048 intervals to preserve spikes
+while bounding memory and SVG size. CSVs keep every batch at its logged precision;
+epoch graphs keep every completed epoch. Burn's current scalar loss is averaged
+across batches, and the logged weights are aggregation weights, not audio-frame
+counts.
 
 The function returns `anyhow::Result<Autoencoder<E, D>>`. Configuration, indexing,
-and final-save failures propagate as errors. An interruption or streaming read
+final-save, and metric-export failures propagate as errors. If exporting metrics
+fails, the saved `model.bpk` remains available. An interruption or streaming read
 failure also returns an error and skips the final export. Completed checkpoints
 remain on disk. Burn's internal backend/checkpoint failures can still panic.
 
@@ -231,10 +249,13 @@ Tests cover paired values and frame boundaries, speaker separation, multi-group
 streaming, repeatable epochs, bounded shuffling without dropped/duplicate frames,
 partial batches, progress, device transfer, slices, and deferred read failures.
 The training smoke test runs two CPU epochs on small synthetic Parquet shards,
-checks both splits' batch counts, and reloads the exported weights for inference.
+checks both splits' batch counts and automatic CSV/SVG exports, and reloads the
+exported weights for inference. Export tests cover numeric epoch ordering,
+aggregation weights, invalid logs, single-point graphs, and complete CSVs for
+series larger than the graph's point budget.
 The CLI smoke test invokes `index`, `train`, and `test` in separate processes,
 checks configuration overrides, and verifies evaluation agrees across batch sizes.
 
-Polars, Hound, Rand, Anyhow, and all dataset/executable code are gated behind
+Polars, Hound, Rand, Anyhow, CSV, Plotters, and all dataset/executable code are gated behind
 `train`. The feature-disabled host check does not establish micro:bit firmware
 compatibility or memory fit; that requires a separate target build and measurement.
