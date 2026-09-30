@@ -85,6 +85,11 @@ pub struct TrainArgs {
     /// Override the random seed
     #[arg(long)]
     pub seed: Option<u64>,
+
+    /// Overwrite existing artifacts. This will remove the existing directory
+    /// and all its contents BEFORE training.
+    #[arg(long, default_value_t = false)]
+    pub overwrite: bool,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -117,14 +122,4 @@ impl ComputeDevice {
             Self::Metal => Device::metal(DeviceKind::DefaultDevice),
         }
     }
-}
-
-fn parse_learning_rate(value: &str) -> std::result::Result<f64, String> {
-    let rate: f64 = value.parse().map_err(|_| "expected a positive number")?;
-
-    if !rate.is_finite() || rate <= 0.0 {
-        return Err("learning rate must be finite and greater than zero".into());
-    }
-
-    Ok(rate)
 }

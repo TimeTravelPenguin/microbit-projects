@@ -117,6 +117,10 @@ fn run_training(args: TrainArgs, device: ComputeDevice) -> Result<()> {
         config.seed = seed;
     }
 
+    if args.overwrite {
+        fs::remove_dir_all(args.artifact_dir.clone()).ok();
+    }
+
     println!("Training from {}", config.dataset_dir.display());
     println!("Artifacts: {}", args.artifact_dir.display());
 
