@@ -18,7 +18,6 @@ use micro_autoenc::{
 
 /// The number of samples per frame for the autoencoder.
 const FRAME_SIZE: usize = 256;
-type ProjectTrainingConfig = TrainingConfig<2, 2>;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
@@ -40,20 +39,22 @@ fn main() -> Result<()> {
     }
 }
 
-fn default_config() -> ProjectTrainingConfig {
+fn default_config() -> TrainingConfig {
     TrainingConfig::new(
-        AutoencoderConfig::new(FRAME_SIZE, 8, [64, 32], [32, 64]).with_dropout([0.05; 2], [0.0; 2]),
+        AutoencoderConfig::new(FRAME_SIZE, 8, vec![64, 32], vec![32, 64])
+            .with_dropout(vec![0.05; 2], vec![0.0; 2]),
         AdamConfig::new(),
     )
 }
 
-fn load_config(path: &std::path::Path) -> Result<ProjectTrainingConfig> {
-    let config = ProjectTrainingConfig::load(path).with_context(|| {
-        format!(
-            "loading {} (expected two hidden layers per half)",
-            path.display()
-        )
-    })?;
+fn load_config(path: &std::path::Path) -> Result<TrainingConfig> {
+    let config =
+        TrainingConfig::load(path).with_context(|| format!("loading {}", path.display()))?;
+    config
+        .model
+        .validate()
+        .map_err(anyhow::Error::msg)
+        .with_context(|| format!("invalid model configuration in {}", path.display()))?;
 
     ensure!(
         config.model.input_size() == FRAME_SIZE,
@@ -124,7 +125,7 @@ fn run_training(args: TrainArgs, device: ComputeDevice) -> Result<()> {
     println!("Training from {}", config.dataset_dir.display());
     println!("Artifacts: {}", args.artifact_dir.display());
 
-    train::<FRAME_SIZE, _, _>(&args.artifact_dir, config, device.init())?;
+    train::<FRAME_SIZE>(&args.artifact_dir, config, device.init())?;
 
     println!(
         "Saved trained weights to {}",

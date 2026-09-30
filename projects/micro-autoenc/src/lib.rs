@@ -1,5 +1,7 @@
 #![cfg_attr(not(feature = "train"), no_std)]
 
+extern crate alloc;
+
 pub mod model;
 
 #[cfg(feature = "cli")]

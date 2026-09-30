@@ -66,7 +66,7 @@ pub struct TrainArgs {
     #[arg(long, default_value = "artifacts", value_name = "DIRECTORY")]
     pub artifact_dir: PathBuf,
 
-    /// Training JSON for 256-sample frames and two hidden layers per half
+    /// Training JSON for 256-sample frames with configurable hidden layer widths and depths
     #[arg(long, value_name = "FILE")]
     pub config: Option<PathBuf>,
 

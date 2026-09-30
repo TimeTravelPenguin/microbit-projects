@@ -1,3 +1,5 @@
+use alloc::{vec, vec::Vec};
+
 use burn::{
     module::Module,
     nn::{Dropout, DropoutConfig, LeakyRelu, LeakyReluConfig, Linear, LinearConfig},
@@ -15,7 +17,7 @@ use burn::{
 /// Linear
 ///   │
 ///   ▼
-/// ReLU
+/// LeakyReLU
 ///   │
 ///   ▼
 /// Dropout
@@ -56,15 +58,15 @@ impl DenseBlock {
 
 /// One half of an autoencoder.
 ///
-/// `N` is the number of hidden blocks. The final output layer is kept
-/// separate because it intentionally has no activation or dropout.
+/// The number of hidden blocks is configured at runtime. The final output layer
+/// is kept separate because it intentionally has no activation or dropout.
 #[derive(Module, Debug)]
-pub struct MlpHalf<const N: usize> {
-    hidden: [DenseBlock; N],
+pub struct MlpHalf {
+    hidden: Vec<DenseBlock>,
     output: Linear,
 }
 
-impl<const N: usize> MlpHalf<N> {
+impl MlpHalf {
     pub fn forward<const D: usize>(&self, mut input: Tensor<D>) -> Tensor<D> {
         for block in &self.hidden {
             input = block.forward(input);
@@ -76,7 +78,7 @@ impl<const N: usize> MlpHalf<N> {
 
 /// Configuration for one [`MlpHalf`].
 ///
-/// `N` determines the number of hidden layers.
+/// The length of `hidden_sizes` determines the number of hidden layers.
 ///
 /// The architecture is:
 ///
@@ -85,35 +87,39 @@ impl<const N: usize> MlpHalf<N> {
 ///     -> hidden_sizes[0]
 ///     -> hidden_sizes[1]
 ///     -> ...
-///     -> hidden_sizes[N - 1]
+///     -> hidden_sizes[last]
 ///     -> output_size
 /// ```
 ///
 /// Each hidden layer has a corresponding dropout probability.
-#[derive(Clone, Copy, Debug)]
-pub struct MlpHalfConfig<const N: usize> {
+#[derive(Clone, Debug)]
+pub struct MlpHalfConfig {
     input_size: usize,
-    hidden_sizes: [usize; N],
+    hidden_sizes: Vec<usize>,
     output_size: usize,
-    dropout: [f64; N],
+    dropout: Vec<f64>,
 }
 
-impl<const N: usize> MlpHalfConfig<N> {
+impl MlpHalfConfig {
     /// Creates a configuration with dropout disabled.
-    pub const fn new(input_size: usize, hidden_sizes: [usize; N], output_size: usize) -> Self {
+    pub fn new(input_size: usize, hidden_sizes: impl Into<Vec<usize>>, output_size: usize) -> Self {
+        let hidden_sizes = hidden_sizes.into();
+        let dropout = vec![0.0; hidden_sizes.len()];
+
         Self {
             input_size,
             hidden_sizes,
             output_size,
-            dropout: [0.0; N],
+            dropout,
         }
     }
 
     /// Sets the dropout probability independently for every hidden layer.
     ///
-    /// Each probability must lie in `[0, 1]`.
-    pub const fn with_dropout(mut self, dropout: [f64; N]) -> Self {
-        self.dropout = dropout;
+    /// Each probability must lie in `[0, 1]`, with one entry per hidden layer.
+    pub fn with_dropout(mut self, dropout: impl Into<Vec<f64>>) -> Self {
+        self.dropout = dropout.into();
+
         self
     }
 
@@ -123,7 +129,7 @@ impl<const N: usize> MlpHalfConfig<N> {
     }
 
     /// Returns the hidden layer sizes.
-    pub const fn hidden_sizes(&self) -> &[usize; N] {
+    pub fn hidden_sizes(&self) -> &[usize] {
         &self.hidden_sizes
     }
 
@@ -133,40 +139,35 @@ impl<const N: usize> MlpHalfConfig<N> {
     }
 
     /// Returns the dropout probabilities.
-    pub const fn dropout(&self) -> &[f64; N] {
+    pub fn dropout(&self) -> &[f64] {
         &self.dropout
     }
 
-    /// Initializes the module on `device`.
-    pub fn init(&self, device: &Device) -> MlpHalf<N> {
-        assert!(self.input_size > 0, "input size must be greater than zero");
-
-        assert!(
-            self.output_size > 0,
-            "output size must be greater than zero"
-        );
-
-        for &size in &self.hidden_sizes {
-            assert!(size > 0, "hidden layer size must be greater than zero");
+    /// Checks dimensions and the dropout entry for each hidden layer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.input_size == 0 {
+            return Err("input size must be greater than zero");
         }
 
-        let hidden = core::array::from_fn(|i| {
-            let d_input = if i == 0 {
-                self.input_size
-            } else {
-                self.hidden_sizes[i - 1]
-            };
+        if self.output_size == 0 {
+            return Err("output size must be greater than zero");
+        }
 
-            DenseBlock::new(d_input, self.hidden_sizes[i], self.dropout[i], device)
-        });
+        validate_hidden_layers(&self.hidden_sizes, &self.dropout)
+    }
 
-        let output_input_size = if N == 0 {
-            self.input_size
-        } else {
-            self.hidden_sizes[N - 1]
-        };
+    /// Initializes the module on `device`, panicking if the configuration is invalid.
+    pub fn init(&self, device: &Device) -> MlpHalf {
+        self.validate().expect("invalid MLP configuration");
+        let mut hidden = Vec::with_capacity(self.hidden_sizes.len());
+        let mut input_size = self.input_size;
 
-        let output = LinearConfig::new(output_input_size, self.output_size).init(device);
+        for (&size, &dropout) in self.hidden_sizes.iter().zip(&self.dropout) {
+            hidden.push(DenseBlock::new(input_size, size, dropout, device));
+            input_size = size;
+        }
+
+        let output = LinearConfig::new(input_size, self.output_size).init(device);
 
         MlpHalf { hidden, output }
     }
@@ -174,9 +175,7 @@ impl<const N: usize> MlpHalfConfig<N> {
 
 /// A fully-connected denoising autoencoder.
 ///
-/// `E` is the number of encoder hidden layers.
-///
-/// `D` is the number of decoder hidden layers.
+/// Encoder and decoder depths are determined by their configured width lists.
 ///
 /// For example:
 ///
@@ -188,20 +187,17 @@ impl<const N: usize> MlpHalfConfig<N> {
 /// can be represented by:
 ///
 /// ```text
-/// E = 2
-/// D = 2
-///
 /// encoder_hidden = [128, 64]
 /// latent_size    = 16
 /// decoder_hidden = [64, 128]
 /// ```
 #[derive(Module, Debug)]
-pub struct Autoencoder<const E: usize, const D: usize> {
-    encoder: MlpHalf<E>,
-    decoder: MlpHalf<D>,
+pub struct Autoencoder {
+    encoder: MlpHalf,
+    decoder: MlpHalf,
 }
 
-impl<const E: usize, const D: usize> Autoencoder<E, D> {
+impl Autoencoder {
     /// Encodes input into the latent representation.
     ///
     /// The final dimension of `input` must equal the autoencoder input size.
@@ -228,12 +224,12 @@ impl<const E: usize, const D: usize> Autoencoder<E, D> {
     }
 
     /// Returns the encoder.
-    pub const fn encoder(&self) -> &MlpHalf<E> {
+    pub const fn encoder(&self) -> &MlpHalf {
         &self.encoder
     }
 
     /// Returns the decoder.
-    pub const fn decoder(&self) -> &MlpHalf<D> {
+    pub const fn decoder(&self) -> &MlpHalf {
         &self.decoder
     }
 }
@@ -242,35 +238,36 @@ impl<const E: usize, const D: usize> Autoencoder<E, D> {
 ///
 /// The encoder always ends at `latent_size`, while the decoder always
 /// maps from `latent_size` back to `input_size`.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 #[cfg_attr(
     feature = "train",
     derive(burn::serde::Serialize, burn::serde::Deserialize)
 )]
 #[cfg_attr(feature = "train", serde(crate = "burn::serde"))]
-pub struct AutoencoderConfig<const E: usize, const D: usize> {
+pub struct AutoencoderConfig {
     input_size: usize,
     latent_size: usize,
 
-    #[cfg_attr(feature = "train", serde(with = "config_array"))]
-    encoder_hidden: [usize; E],
-    #[cfg_attr(feature = "train", serde(with = "config_array"))]
-    decoder_hidden: [usize; D],
+    encoder_hidden: Vec<usize>,
+    decoder_hidden: Vec<usize>,
 
-    #[cfg_attr(feature = "train", serde(with = "config_array"))]
-    encoder_dropout: [f64; E],
-    #[cfg_attr(feature = "train", serde(with = "config_array"))]
-    decoder_dropout: [f64; D],
+    encoder_dropout: Vec<f64>,
+    decoder_dropout: Vec<f64>,
 }
 
-impl<const E: usize, const D: usize> AutoencoderConfig<E, D> {
+impl AutoencoderConfig {
     /// Creates a new autoencoder configuration with dropout disabled.
-    pub const fn new(
+    pub fn new(
         input_size: usize,
         latent_size: usize,
-        encoder_hidden: [usize; E],
-        decoder_hidden: [usize; D],
+        encoder_hidden: impl Into<Vec<usize>>,
+        decoder_hidden: impl Into<Vec<usize>>,
     ) -> Self {
+        let encoder_hidden = encoder_hidden.into();
+        let decoder_hidden = decoder_hidden.into();
+        let encoder_dropout = vec![0.0; encoder_hidden.len()];
+        let decoder_dropout = vec![0.0; decoder_hidden.len()];
+
         Self {
             input_size,
             latent_size,
@@ -278,20 +275,20 @@ impl<const E: usize, const D: usize> AutoencoderConfig<E, D> {
             encoder_hidden,
             decoder_hidden,
 
-            encoder_dropout: [0.0; E],
-            decoder_dropout: [0.0; D],
+            encoder_dropout,
+            decoder_dropout,
         }
     }
 
     /// Sets dropout probabilities for the encoder and decoder hidden
-    /// layers.
-    pub const fn with_dropout(
+    /// layers. Each list must have one probability per hidden layer.
+    pub fn with_dropout(
         mut self,
-        encoder_dropout: [f64; E],
-        decoder_dropout: [f64; D],
+        encoder_dropout: impl Into<Vec<f64>>,
+        decoder_dropout: impl Into<Vec<f64>>,
     ) -> Self {
-        self.encoder_dropout = encoder_dropout;
-        self.decoder_dropout = decoder_dropout;
+        self.encoder_dropout = encoder_dropout.into();
+        self.decoder_dropout = decoder_dropout.into();
 
         self
     }
@@ -307,66 +304,86 @@ impl<const E: usize, const D: usize> AutoencoderConfig<E, D> {
     }
 
     /// Returns the encoder hidden layer sizes.
-    pub const fn encoder_hidden(&self) -> &[usize; E] {
+    pub fn encoder_hidden(&self) -> &[usize] {
         &self.encoder_hidden
     }
 
     /// Returns the decoder hidden layer sizes.
-    pub const fn decoder_hidden(&self) -> &[usize; D] {
+    pub fn decoder_hidden(&self) -> &[usize] {
         &self.decoder_hidden
     }
 
     /// Returns the encoder dropout probabilities.
-    pub const fn encoder_dropout(&self) -> &[f64; E] {
+    pub fn encoder_dropout(&self) -> &[f64] {
         &self.encoder_dropout
     }
 
     /// Returns the decoder dropout probabilities.
-    pub const fn decoder_dropout(&self) -> &[f64; D] {
+    pub fn decoder_dropout(&self) -> &[f64] {
         &self.decoder_dropout
     }
 
-    /// Initializes the autoencoder on `device`.
-    pub fn init(&self, device: &Device) -> Autoencoder<E, D> {
-        assert!(self.input_size > 0, "input size must be greater than zero");
+    /// Checks dimensions and the dropout entry for each hidden layer.
+    pub fn validate(&self) -> Result<(), &'static str> {
+        if self.input_size == 0 {
+            return Err("input size must be greater than zero");
+        }
 
-        assert!(
-            self.latent_size > 0,
-            "latent size must be greater than zero"
-        );
+        if self.latent_size == 0 {
+            return Err("latent size must be greater than zero");
+        }
 
-        let encoder = MlpHalfConfig::new(self.input_size, self.encoder_hidden, self.latent_size)
-            .with_dropout(self.encoder_dropout)
-            .init(device);
+        if self.encoder_hidden.len() != self.encoder_dropout.len() {
+            return Err("encoder dropout length must match encoder hidden layer count");
+        }
 
-        let decoder = MlpHalfConfig::new(self.latent_size, self.decoder_hidden, self.input_size)
-            .with_dropout(self.decoder_dropout)
-            .init(device);
+        if self.decoder_hidden.len() != self.decoder_dropout.len() {
+            return Err("decoder dropout length must match decoder hidden layer count");
+        }
+
+        validate_hidden_layers(&self.encoder_hidden, &self.encoder_dropout)?;
+        validate_hidden_layers(&self.decoder_hidden, &self.decoder_dropout)
+    }
+
+    /// Initializes the autoencoder on `device`, panicking if the configuration is invalid.
+    pub fn init(&self, device: &Device) -> Autoencoder {
+        self.validate().expect("invalid autoencoder configuration");
+
+        let encoder = MlpHalfConfig::new(
+            self.input_size,
+            self.encoder_hidden.clone(),
+            self.latent_size,
+        )
+        .with_dropout(self.encoder_dropout.clone())
+        .init(device);
+
+        let decoder = MlpHalfConfig::new(
+            self.latent_size,
+            self.decoder_hidden.clone(),
+            self.input_size,
+        )
+        .with_dropout(self.decoder_dropout.clone())
+        .init(device);
 
         Autoencoder { encoder, decoder }
     }
 }
 
-// Serde's built-in array implementations cover fixed lengths through 32, not
-// arbitrary const generics. Keep serialization out of the inference-only build.
-#[cfg(feature = "train")]
-mod config_array {
-    use burn::serde::{Deserialize, Deserializer, Serialize, Serializer, de};
-
-    pub fn serialize<T: Serialize, S: Serializer, const N: usize>(
-        values: &[T; N],
-        serializer: S,
-    ) -> Result<S::Ok, S::Error> {
-        values.as_slice().serialize(serializer)
+fn validate_hidden_layers(hidden_sizes: &[usize], dropout: &[f64]) -> Result<(), &'static str> {
+    if hidden_sizes.len() != dropout.len() {
+        return Err("dropout length must match hidden layer count");
     }
 
-    pub fn deserialize<'de, T: Deserialize<'de>, D: Deserializer<'de>, const N: usize>(
-        deserializer: D,
-    ) -> Result<[T; N], D::Error> {
-        let values = Vec::<T>::deserialize(deserializer)?;
-
-        values.try_into().map_err(|values: Vec<T>| {
-            de::Error::custom(format_args!("expected {N} entries, got {}", values.len()))
-        })
+    if hidden_sizes.contains(&0) {
+        return Err("hidden layer size must be greater than zero");
     }
+
+    if dropout
+        .iter()
+        .any(|probability| !(0.0..=1.0).contains(probability))
+    {
+        return Err("dropout probabilities must be finite and between zero and one");
+    }
+
+    Ok(())
 }

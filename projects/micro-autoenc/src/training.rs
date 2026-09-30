@@ -59,7 +59,7 @@ impl DenoisingBatch {
     }
 }
 
-impl<const E: usize, const D: usize> Autoencoder<E, D> {
+impl Autoencoder {
     /// Runs a denoising batch through the network and calculates MSE.
     ///
     /// This helper is shared by:
@@ -92,7 +92,7 @@ impl<const E: usize, const D: usize> Autoencoder<E, D> {
 ///   ↓
 /// backward()
 /// ```
-impl<const E: usize, const D: usize> TrainStep for Autoencoder<E, D> {
+impl TrainStep for Autoencoder {
     type Input = DenoisingBatch;
     type Output = RegressionOutput;
 
@@ -107,7 +107,7 @@ impl<const E: usize, const D: usize> TrainStep for Autoencoder<E, D> {
 /// Validation and testing/evaluation implementation.
 ///
 /// No backward pass is performed here.
-impl<const E: usize, const D: usize> InferenceStep for Autoencoder<E, D> {
+impl InferenceStep for Autoencoder {
     type Input = DenoisingBatch;
     type Output = RegressionOutput;
 
@@ -116,14 +116,11 @@ impl<const E: usize, const D: usize> InferenceStep for Autoencoder<E, D> {
     }
 }
 
-/// Training settings for an encoder with `E` and a decoder with `D` hidden layers.
-///
-/// Burn 0.22.0-pre.4's `Config` derive does not propagate generics to its generated
-/// implementations. Derive Serde directly and implement `Config` below instead.
+/// Training settings, including encoder and decoder depths configured at runtime.
 #[derive(Clone, Debug, burn::serde::Serialize, burn::serde::Deserialize)]
 #[serde(crate = "burn::serde")]
-pub struct TrainingConfig<const E: usize = 4, const D: usize = 4> {
-    pub model: AutoencoderConfig<E, D>,
+pub struct TrainingConfig {
+    pub model: AutoencoderConfig,
     pub optimizer: AdamConfig,
     pub num_epochs: usize,
     pub batch_size: usize,
@@ -155,8 +152,8 @@ pub struct TrainingConfig<const E: usize = 4, const D: usize = 4> {
     pub warmup_fraction: f64,
 }
 
-impl<const E: usize, const D: usize> TrainingConfig<E, D> {
-    pub fn new(model: AutoencoderConfig<E, D>, optimizer: AdamConfig) -> Self {
+impl TrainingConfig {
+    pub fn new(model: AutoencoderConfig, optimizer: AdamConfig) -> Self {
         Self {
             model,
             optimizer,
@@ -227,9 +224,9 @@ impl<const E: usize, const D: usize> TrainingConfig<E, D> {
     }
 }
 
-impl<const E: usize, const D: usize> burn::config::Config for TrainingConfig<E, D> {}
+impl burn::config::Config for TrainingConfig {}
 
-impl<const E: usize, const D: usize> std::fmt::Display for TrainingConfig<E, D> {
+impl std::fmt::Display for TrainingConfig {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         formatter.write_str(&burn::config::config_to_json(self))
     }
@@ -264,8 +261,8 @@ const fn default_warmup_fraction() -> f64 {
 
 /// Trains on paired noisy/clean audio, with speaker-disjoint validation each epoch.
 ///
-/// `N` is the frame size and must equal `config.model.input_size()`. `E` and `D`
-/// retain the encoder/decoder depths from the configuration. Both splits stream
+/// `N` is the frame size and must equal `config.model.input_size()`. Encoder and
+/// decoder depths come from the configuration's width lists. Both splits stream
 /// row groups; only training uses the bounded shuffle buffer. Official test
 /// shards are never opened here.
 ///
@@ -275,11 +272,11 @@ const fn default_warmup_fraction() -> f64 {
 /// Export failures return an error but leave the saved weights available.
 /// The model is in inference mode. An interrupted run returns an error without exporting
 /// a final model; any completed checkpoints remain available.
-pub fn train<const N: usize, const E: usize, const D: usize>(
+pub fn train<const N: usize>(
     artifact_dir: impl AsRef<Path>,
-    config: TrainingConfig<E, D>,
+    config: TrainingConfig,
     device: impl Into<Device>,
-) -> Result<Autoencoder<E, D>> {
+) -> Result<Autoencoder> {
     ensure!(N > 0, "frame size must be greater than zero");
     ensure!(
         config.model.input_size() == N,
@@ -319,6 +316,8 @@ pub fn train<const N: usize, const E: usize, const D: usize>(
         !config.validation_speakers.is_empty(),
         "validation requires at least one held-out speaker"
     );
+
+    config.model.validate().map_err(anyhow::Error::msg)?;
 
     let artifact_dir = artifact_dir.as_ref();
     std::fs::create_dir_all(artifact_dir)

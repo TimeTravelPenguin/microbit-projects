@@ -557,15 +557,15 @@ fn training_streams_audio_for_multiple_epochs_and_exports_reloadable_weights() {
     // Training must validate on held-out training speakers, never test shards.
     std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
     let model_config = AutoencoderConfig::new(4, 2, [6, 5], [6]).with_dropout([0.1, 0.1], [0.2]);
-    let config = TrainingConfig::new(model_config, AdamConfig::new())
+    let config = TrainingConfig::new(model_config.clone(), AdamConfig::new())
         .with_dataset_dir(directory.path())
         .with_num_epochs(2)
         .with_batch_size(2)
         .with_shuffle_buffer_frames(2)
         .with_learning_rate_range(0.0001, 0.01);
     let device = Device::flex();
-    let trained = train::<4, 2, 1>(&artifact_dir, config.clone(), device.clone()).unwrap();
-    let restored_config = TrainingConfig::<2, 1>::load(artifact_dir.join("config.json")).unwrap();
+    let trained = train::<4>(&artifact_dir, config.clone(), device.clone()).unwrap();
+    let restored_config = TrainingConfig::load(artifact_dir.join("config.json")).unwrap();
     assert_eq!(restored_config.to_string(), config.to_string());
 
     let restored = model_config
@@ -638,13 +638,23 @@ fn training_streams_audio_for_multiple_epochs_and_exports_reloadable_weights() {
     }
 
     // A second run cannot overwrite this run's weights or metrics.
-    let error = train::<4, 2, 1>(&artifact_dir, config, device).unwrap_err();
+    let error = train::<4>(&artifact_dir, config, device).unwrap_err();
     assert!(error.to_string().contains("must be empty"));
     assert!(artifact_dir.join("model.bpk").is_file());
 }
 
 #[test]
 fn cli_indexes_trains_and_evaluates_saved_weights() {
+    for (encoder_hidden, decoder_hidden) in [
+        (vec![6], vec![6]),
+        (vec![6, 4], vec![4, 6]),
+        (vec![], vec![4, 5, 6]),
+    ] {
+        cli_roundtrip(encoder_hidden, decoder_hidden);
+    }
+}
+
+fn cli_roundtrip(encoder_hidden: Vec<usize>, decoder_hidden: Vec<usize>) {
     let directory = tempdir().unwrap();
     let artifact_dir = directory.path().join("run with spaces");
     let clean = wav(&[4096; 768], 16_000, 1);
@@ -682,7 +692,7 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
     std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
     let config_path = directory.path().join("input-config.json");
     TrainingConfig::new(
-        AutoencoderConfig::new(256, 2, [6, 4], [4, 6]),
+        AutoencoderConfig::new(256, 2, encoder_hidden.clone(), decoder_hidden.clone()),
         AdamConfig::new(),
     )
     .with_dataset_dir("missing-directory")
@@ -706,10 +716,10 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
         "--seed",
         "7",
     ]);
-    let saved = TrainingConfig::<2, 2>::load(artifact_dir.join("config.json")).unwrap();
+    let saved = TrainingConfig::load(artifact_dir.join("config.json")).unwrap();
     assert_eq!(saved.dataset_dir, directory.path());
-    assert_eq!(saved.model.encoder_hidden(), &[6, 4]);
-    assert_eq!(saved.model.decoder_hidden(), &[4, 6]);
+    assert_eq!(saved.model.encoder_hidden(), encoder_hidden);
+    assert_eq!(saved.model.decoder_hidden(), decoder_hidden);
     assert_eq!(saved.num_epochs, 1);
     assert_eq!(saved.batch_size, 2);
     assert_eq!(saved.shuffle_buffer_frames, 2);
@@ -763,7 +773,7 @@ fn cli_indexes_trains_and_evaluates_saved_weights() {
         weights_before
     );
     assert_eq!(
-        TrainingConfig::<2, 2>::load(artifact_dir.join("config.json"))
+        TrainingConfig::load(artifact_dir.join("config.json"))
             .unwrap()
             .to_string(),
         saved.to_string()

@@ -70,12 +70,23 @@ directory. Its optional positional directory overrides the configuration's data
 path. Options include `--epochs`, `--batch-size`, `--learning-rate`, `--seed`, and
 `--shuffle-buffer-frames`.
 
-The executable uses 256-sample frames and two hidden layers in each half, with a
-default architecture of `256 → 128 → 64 → 16 → 64 → 128 → 256`. `--config FILE`
-loads a `TrainingConfig<2, 2>` JSON, including widths, dropout, and validation
-speakers; explicit CLI options override its settings. This starts a fresh run,
-not a checkpoint resume. Other frame sizes/depths remain available through the
-library API.
+The executable uses 256-sample frames, with a default architecture of
+`256 → 64 → 32 → 8 → 32 → 64 → 256`. `--config FILE` loads a `TrainingConfig`
+JSON, including layer widths and depths, dropout, and validation speakers;
+explicit CLI options override its settings. This starts a fresh run, not a
+checkpoint resume. Other frame sizes remain available through the library API.
+
+Model depths are determined at runtime by the lengths of `model.encoder_hidden`
+and `model.decoder_hidden`. Change those lists in the JSON to experiment with
+different architectures using the same executable. Each corresponding dropout
+list must have the same length as its hidden-width list. Widths must be positive
+and dropout probabilities must be between zero and one. Empty hidden lists are
+supported; that half then consists of its output linear layer alone.
+
+Existing valid config files retain the same JSON format. For example, start with
+`cargo run -p micro-autoenc -- config > config.json`, edit the model lists, and
+pass `--config config.json` when training. Evaluation reconstructs the architecture
+from the saved run's configuration.
 
 `test` loads `config.json` and `model.bpk` from the supplied run directory and
 evaluates the official test split by default. It prints the noisy-input baseline
@@ -173,22 +184,23 @@ use micro_autoenc::{
 };
 
 fn main() -> anyhow::Result<()> {
-    let model = AutoencoderConfig::new(256, 16, [128, 64], [64, 128]);
+    let model = AutoencoderConfig::new(256, 16, vec![128, 64], vec![64, 128]);
     let config = TrainingConfig::new(model, AdamConfig::new())
         .with_dataset_dir("datasets/VoiceBank-DEMAND-16k/data")
         .with_num_epochs(10)
         .with_batch_size(64)
         .with_shuffle_buffer_frames(4096);
 
-    let trained = train::<256, 2, 2>("artifacts/denoising-run-01", config, Device::flex())?;
+    let trained = train::<256>("artifacts/denoising-run-01", config, Device::flex())?;
     // `trained` is ready for inference, with dropout disabled.
 
     Ok(())
 }
 ```
 
-The generic arguments are the frame size `N`, encoder depth `E`, and decoder depth
-`D`. The model's input size must equal `N`. Training uses autodiff on the supplied
+The only const generic argument is the frame size `N`; layer depths are runtime
+configuration. Constructors accept vectors or array literals, and config getters
+return slices. The model's input size must equal `N`. Training uses autodiff on the supplied
 device; validation uses its inference device. Defaults are seed 42, Adam learning
 rate `1e-4`, and held-out speakers `p282` and `p287`. Override the speakers with
 `.with_validation_speakers(vec!["p282".into(), "p287".into()])`. Both splits must
@@ -220,7 +232,8 @@ epoch graphs keep every completed epoch. Burn's current scalar loss is averaged
 across batches, and the logged weights are aggregation weights, not audio-frame
 counts.
 
-The function returns `anyhow::Result<Autoencoder<E, D>>`. Configuration, indexing,
+The function returns `anyhow::Result<Autoencoder>`. Model dimensions and dropout
+lists are validated before training creates artifacts. Configuration, indexing,
 final-save, and metric-export failures propagate as errors. If exporting metrics
 fails, the saved `model.bpk` remains available. An interruption or streaming read
 failure also returns an error and skips the final export. Completed checkpoints
@@ -254,8 +267,11 @@ exported weights for inference. Export tests cover numeric epoch ordering,
 aggregation weights, invalid logs, single-point graphs, and complete CSVs for
 series larger than the graph's point budget.
 The CLI smoke test invokes `index`, `train`, and `test` in separate processes,
-checks configuration overrides, and verifies evaluation agrees across batch sizes.
+checks configuration overrides, exercises several layer depths with the same
+executable, and verifies evaluation agrees across batch sizes.
 
 Polars, Hound, Rand, Anyhow, CSV, Plotters, and all dataset/executable code are gated behind
 `train`. The feature-disabled host check does not establish micro:bit firmware
 compatibility or memory fit; that requires a separate target build and measurement.
+The model uses `alloc::vec::Vec` in the inference-only build; its final firmware
+application must provide an allocator.
