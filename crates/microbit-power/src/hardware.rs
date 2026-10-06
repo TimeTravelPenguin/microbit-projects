@@ -30,7 +30,7 @@ pub struct PowerOff {
 }
 
 impl PowerOff {
-    /// Setup used by [`crate::power_off!`]. The macro also performs a startup check.
+    /// Configures power management and waits briefly for a late startup event.
     #[doc(hidden)]
     pub fn new(
         i2c: pac::TWIM0,
@@ -42,12 +42,16 @@ impl PowerOff {
         let i2c = Twim::new(i2c, pins.into(), Frequency::K100);
         let interrupt = interrupt.into_pullup_input();
 
-        Self {
+        let mut power = Self {
             manager: Some(PowerManager::new(i2c, interrupt)),
             timer: Timer::new(timer),
             power,
             latest_error: None,
-        }
+        };
+
+        power.check_startup();
+
+        power
     }
 
     /// Runs an application step repeatedly, checking power events between steps.
@@ -116,6 +120,18 @@ impl PowerOff {
     /// The most recent check's error, cleared after a successful check.
     pub fn last_error(&self) -> Option<&HardwareError> {
         self.latest_error.as_ref()
+    }
+
+    fn check_startup(&mut self) {
+        let Some(manager) = self.manager.as_mut() else {
+            return;
+        };
+
+        match manager.poll_startup(&mut self.timer) {
+            Ok(true) => self.check(),
+            Ok(false) => {}
+            Err(error) => self.latest_error = Some(error),
+        }
     }
 }
 

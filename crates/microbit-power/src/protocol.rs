@@ -10,6 +10,7 @@ use embedded_hal::{delay::DelayNs, digital::InputPin, i2c::I2c};
 const INTERFACE_ADDRESS: u8 = 0x70;
 const RESPONSE_LEN: usize = 12;
 const WAIT_ATTEMPTS: usize = 50;
+const STARTUP_GRACE_MS: usize = 100;
 
 #[derive(Clone, Copy)]
 enum ShutdownPhase {
@@ -68,6 +69,29 @@ impl<Bus: I2c, InterruptPin: InputPin> PowerManager<Bus, InterruptPin> {
         self.observe_response(&response)?;
 
         Ok(self.shutdown_requested)
+    }
+
+    /// Gives the interface time to post a long-press event after resuming the CPU.
+    ///
+    /// The bounded guard spans several 30 ms interface ticks; the protocol does
+    /// not formally guarantee when the event arrives. Poll immediately, then
+    /// wait one millisecond between samples, retrying transient errors.
+    pub(crate) fn poll_startup(
+        &mut self,
+        delay: &mut impl DelayNs,
+    ) -> Result<bool, Error<Bus::Error, InterruptPin::Error>> {
+        let mut result = self.poll();
+
+        for _ in 0..STARTUP_GRACE_MS {
+            if matches!(&result, Ok(true)) {
+                return result;
+            }
+
+            delay.delay_ms(1);
+            result = self.poll();
+        }
+
+        result
     }
 
     /// Turns off the power LED and asks the interface chip to power down.

@@ -149,6 +149,86 @@ fn shutdown_commands() -> Vec<Step> {
     steps
 }
 
+fn inactive_samples(samples: usize) -> Vec<Step> {
+    let mut steps = vec![Step::Pin(Ok(false))];
+
+    for _ in 1..samples {
+        steps.extend([Step::Delay(1), Step::Pin(Ok(false))]);
+    }
+
+    steps
+}
+
+#[test]
+fn startup_waits_for_delayed_interrupt_before_allowing_application_work() {
+    let mut steps = inactive_samples(65);
+    steps.push(Step::Delay(1));
+    steps.extend(receive(&[0x11, 0x09, 0x01, 0x03]));
+    let (mut manager, mut delay, script) = setup(steps);
+
+    assert_eq!(manager.poll_startup(&mut delay), Ok(true));
+    assert_eq!(manager.poll(), Ok(true));
+    script.assert_finished();
+}
+
+#[test]
+fn startup_retries_busy_and_incomplete_replies_until_shutdown_arrives() {
+    let mut steps = Vec::from(receive(&[0x20, 0x39]));
+    steps.push(Step::Delay(1));
+    steps.extend(receive(&[0x20, 0x31]));
+    steps.push(Step::Delay(1));
+    steps.extend(receive(&[0x11, 0x09, 0x01, 0x03]));
+    let (mut manager, mut delay, script) = setup(steps);
+
+    assert_eq!(manager.poll_startup(&mut delay), Ok(true));
+    script.assert_finished();
+}
+
+#[test]
+fn startup_without_an_event_has_101_samples_and_100_one_millisecond_delays() {
+    let (mut manager, mut delay, script) = setup(inactive_samples(101));
+
+    assert_eq!(manager.poll_startup(&mut delay), Ok(false));
+    script.assert_finished();
+}
+
+#[test]
+fn startup_accepts_shutdown_on_the_final_sample() {
+    let mut steps = inactive_samples(100);
+    steps.push(Step::Delay(1));
+    steps.extend(receive(&[0x11, 0x09, 0x01, 0x03]));
+    let (mut manager, mut delay, script) = setup(steps);
+
+    assert_eq!(manager.poll_startup(&mut delay), Ok(true));
+    script.assert_finished();
+}
+
+#[test]
+fn startup_retries_pin_and_transport_errors_before_receiving_shutdown() {
+    let mut steps = vec![
+        Step::Pin(Err(Fault)),
+        Step::Delay(1),
+        Step::Pin(Ok(true)),
+        Step::Write(&[0x00], Err(Fault)),
+        Step::Delay(1),
+    ];
+    steps.extend(receive(&[0x11, 0x09, 0x01, 0x03]));
+    let (mut manager, mut delay, script) = setup(steps);
+
+    assert_eq!(manager.poll_startup(&mut delay), Ok(true));
+    script.assert_finished();
+}
+
+#[test]
+fn startup_returns_the_final_sample_error() {
+    let mut steps = inactive_samples(100);
+    steps.extend([Step::Delay(1), Step::Pin(Err(Fault))]);
+    let (mut manager, mut delay, script) = setup(steps);
+
+    assert_eq!(manager.poll_startup(&mut delay), Err(Error::Pin(Fault)));
+    script.assert_finished();
+}
+
 #[test]
 fn inactive_interrupt_does_not_access_i2c() {
     let (mut manager, _, script) = setup(vec![Step::Pin(Ok(false))]);

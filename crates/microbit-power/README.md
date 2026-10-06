@@ -26,12 +26,16 @@ power.run(|| {
 });
 ```
 
-Setup checks once for an event already pending at startup. `run` checks again
-between calls to your closure because the interface event may arrive after that
-first check. Your closure must return periodically; no background interrupt or
-global state is used. Checking once per displayed frame is sufficient for the
-existing blocking display example. If you manage your own loop, call
-`power.check()` at the same safe boundary instead.
+On reset-button release, the interface restarts the application processor before
+posting its event. Setup polls during a roughly 100 ms grace period, retrying
+transient replies, so a late shutdown event can be handled before application
+initialization or the first frame. Normal startup takes about 100 ms longer.
+This is a bounded grace period, not a protocol delivery deadline.
+
+`run` checks again between calls to your closure. Your closure must return
+periodically; no background interrupt or global state is used. Checking once per
+displayed frame is sufficient for the existing blocking display example. If you
+manage your own loop, call `power.check()` at the same safe boundary instead.
 
 The helper reserves TWIM0, the internal I²C pins P0.08/P0.16, the shared interrupt
 input P0.25, TIMER3, and POWER. TIMER3 handles the short handshake delays without
