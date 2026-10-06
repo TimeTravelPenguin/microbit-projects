@@ -1,4 +1,8 @@
-use std::{fs, num::NonZeroUsize, path::PathBuf};
+use std::{
+    fs,
+    num::NonZeroUsize,
+    path::{Path, PathBuf},
+};
 
 use anyhow::{Context, Result, ensure};
 use burn::{
@@ -6,15 +10,17 @@ use burn::{
     data::dataloader::DataLoader,
     module::Module,
     nn::loss::{MseLoss, Reduction},
-    optim::AdamConfig,
+    tensor::Device,
 };
 use clap::Parser;
 use micro_autoenc::{
-    AutoencoderConfig,
+    Autoencoder, AutoencoderConfig,
     cli::{Cli, CliCommand, ComputeDevice, Split, TrainArgs},
     dataset::{VoiceBankDataLoader, VoiceBankDataset},
     training::{TrainingConfig, train},
 };
+
+mod audio;
 
 /// The number of samples per frame for the autoencoder.
 const FRAME_SIZE: usize = 256;
@@ -36,6 +42,11 @@ fn main() -> Result<()> {
             artifact_dir,
             batch_size,
         } => evaluate(directory, split, artifact_dir, batch_size, cli.device),
+        CliCommand::Process {
+            model,
+            input,
+            output,
+        } => process_audio(model, input, output, cli.device),
     }
 }
 
@@ -43,11 +54,11 @@ fn default_config() -> TrainingConfig {
     TrainingConfig::new(
         AutoencoderConfig::new(FRAME_SIZE, 8, vec![64, 32], vec![32, 64])
             .with_dropout(vec![0.05; 2], vec![0.0; 2]),
-        AdamConfig::new(),
     )
+    .with_patience(Some(20))
 }
 
-fn load_config(path: &std::path::Path) -> Result<TrainingConfig> {
+fn load_config(path: &Path) -> Result<TrainingConfig> {
     let config =
         TrainingConfig::load(path).with_context(|| format!("loading {}", path.display()))?;
     config
@@ -63,6 +74,20 @@ fn load_config(path: &std::path::Path) -> Result<TrainingConfig> {
     );
 
     Ok(config)
+}
+
+fn load_model(
+    directory: &Path,
+    config: &AutoencoderConfig,
+    device: &Device,
+) -> Result<Autoencoder> {
+    let weights = directory.join("model.bpk");
+    let model = config
+        .init(device)
+        .try_load_file(&weights)
+        .with_context(|| format!("loading weights from {}", weights.display()))?;
+
+    Ok(model.valid())
 }
 
 fn index(directory: Option<PathBuf>, split: Split, device: ComputeDevice) -> Result<()> {
@@ -150,13 +175,7 @@ fn evaluate(
         .map(String::as_str)
         .collect();
     let device = device.init();
-    let model_path = artifact_dir.join("model.bpk");
-    let model = config
-        .model
-        .init(&device)
-        .try_load_file(&model_path)
-        .with_context(|| format!("loading weights from {}", model_path.display()))?
-        .valid();
+    let model = load_model(&artifact_dir, &config.model, &device)?;
 
     println!("Evaluating {split:?} from {}...", directory.display());
 
@@ -197,6 +216,27 @@ fn evaluate(
     println!(
         "Denoised MSE: {:.8}",
         denoised_squared_error / frames_seen as f64
+    );
+
+    Ok(())
+}
+
+fn process_audio(
+    artifact_dir: PathBuf,
+    input_path: PathBuf,
+    output_path: PathBuf,
+    device: ComputeDevice,
+) -> Result<()> {
+    let config = load_config(&artifact_dir.join("config.json"))?;
+    let device = device.init();
+    let model = load_model(&artifact_dir, &config.model, &device)?;
+
+    println!("Processing {}...", input_path.display());
+    let sample_count = audio::denoise(&model, &device, &input_path, &output_path)
+        .with_context(|| format!("processing {}", input_path.display()))?;
+    println!(
+        "Saved {sample_count} denoised samples to {}",
+        output_path.display()
     );
 
     Ok(())

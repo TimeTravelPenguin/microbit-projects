@@ -53,6 +53,18 @@ pub enum CliCommand {
         #[arg(long)]
         batch_size: Option<NonZeroUsize>,
     },
+    /// Denoise a mono 16 kHz PCM16 WAV using a saved training run
+    Process {
+        /// Run directory containing config.json and model.bpk
+        #[arg(value_name = "MODEL_DIRECTORY")]
+        model: PathBuf,
+        /// Input mono, 16 kHz, 16-bit integer PCM WAV
+        #[arg(value_name = "INPUT_WAV")]
+        input: PathBuf,
+        /// New output WAV file (must not already exist)
+        #[arg(value_name = "OUTPUT_WAV")]
+        output: PathBuf,
+    },
 }
 
 #[derive(Args)]

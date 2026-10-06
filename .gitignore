@@ -22,4 +22,5 @@ target
 
 datasets
 artifacts
+.env
 projects/micro-tictactoe/assets

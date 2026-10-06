@@ -15,7 +15,8 @@ use tempfile::tempdir;
 fn runtime_training_config_roundtrips_through_burn_file_api() {
     let model =
         AutoencoderConfig::new(8, 2, vec![6, 4], vec![5]).with_dropout(vec![0.1, 0.2], vec![0.3]);
-    let mut config: TrainingConfig = TrainingConfig::new(model, AdamConfig::new())
+    let mut config: TrainingConfig = TrainingConfig::new(model)
+        .with_optimizer(AdamConfig::new())
         .with_num_epochs(3)
         .with_batch_size(7)
         .with_dataset_dir("audio/shards")
@@ -52,10 +53,9 @@ fn runtime_training_config_roundtrips_through_burn_file_api() {
 
 #[test]
 fn array_constructor_inputs_and_training_defaults_are_preserved() {
-    let config: TrainingConfig = TrainingConfig::new(
-        AutoencoderConfig::new(16, 2, [12, 8, 6, 4], [4, 6, 8, 12]),
-        AdamConfig::new(),
-    );
+    let config: TrainingConfig =
+        TrainingConfig::new(AutoencoderConfig::new(16, 2, [12, 8, 6, 4], [4, 6, 8, 12]))
+            .with_optimizer(AdamConfig::new());
 
     assert_eq!(config.num_epochs, 50);
     assert_eq!(config.batch_size, 64);
@@ -83,7 +83,7 @@ fn vectors_support_runtime_depths_including_zero_and_more_than_32_layers() {
     for (encoder_depth, decoder_depth) in [(0, 0), (0, 2), (2, 0), (1, 1), (2, 3), (33, 34)] {
         let model = AutoencoderConfig::new(8, 2, vec![4; encoder_depth], vec![4; decoder_depth])
             .with_dropout(vec![0.25; encoder_depth], vec![0.5; decoder_depth]);
-        let config = TrainingConfig::new(model, AdamConfig::new());
+        let config = TrainingConfig::new(model).with_optimizer(AdamConfig::new());
         let restored = TrainingConfig::load_binary(config.to_string().as_bytes()).unwrap();
 
         assert_eq!(restored.model.encoder_hidden(), vec![4; encoder_depth]);
@@ -102,7 +102,8 @@ fn vectors_support_runtime_depths_including_zero_and_more_than_32_layers() {
 fn mismatched_dropout_lengths_from_json_fail_before_creating_artifacts() {
     let directory = tempdir().unwrap();
     let artifact_dir = directory.path().join("run");
-    let config = TrainingConfig::new(AutoencoderConfig::new(8, 2, [6, 4], [5]), AdamConfig::new());
+    let config = TrainingConfig::new(AutoencoderConfig::new(8, 2, [6, 4], [5]))
+        .with_optimizer(AdamConfig::new());
     let json = config.to_string();
 
     for field in ["encoder_dropout", "decoder_dropout"] {
@@ -170,7 +171,8 @@ fn model_validation_rejects_invalid_dimensions_and_dropout() {
 fn invalid_training_settings_fail_before_creating_artifacts() {
     let directory = tempdir().unwrap();
     let artifact_dir = directory.path().join("run");
-    let config = TrainingConfig::new(AutoencoderConfig::new(8, 2, [6, 4], [5]), AdamConfig::new());
+    let config = TrainingConfig::new(AutoencoderConfig::new(8, 2, [6, 4], [5]))
+        .with_optimizer(AdamConfig::new());
     let device = Device::flex();
     let error = train::<4>(&artifact_dir, config.clone(), device.clone()).unwrap_err();
     assert!(

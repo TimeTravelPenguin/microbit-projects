@@ -18,7 +18,7 @@ burn = {
 clap = { version = "4.6.7", features = ["derive", "wrap_help"], optional = true }
 csv = { version = "1.4", optional = true }
 hound = { version = "3.5", optional = true }
-plotters = { version = "0.3.7", default-features = false, features = ["svg_backend", "line_series"], optional = true }
+plotters = { version = "0.3.7", default-features = false, features = ["line_series", "svg_backend"], optional = true }
 polars = {
   version = "0.55",
   default-features = false,
@@ -30,13 +30,14 @@ polars = {
 }
 rand = { version = "0.10", optional = true }
 serde_json = { version = "1.0.151", optional = true }
+tempfile = { version = "3", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
 
 [features]
 default = ["cli", "train"]
-cli = ["dep:clap", "dep:serde_json"]
+cli = ["dep:clap", "dep:serde_json", "dep:tempfile"]
 train = [
   "burn/extension",
   "burn/metal",
@@ -51,6 +52,7 @@ train = [
   "dep:plotters",
   "dep:polars",
   "dep:rand",
+  "dep:tempfile",
 ]
 
 [lints]

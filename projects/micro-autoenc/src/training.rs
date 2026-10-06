@@ -6,12 +6,13 @@ use std::{
 use anyhow::{Context, Result, ensure};
 use burn::{
     data::dataloader::DataLoader,
+    grad_clipping::GradientClippingConfig,
     lr_scheduler::{
         cosine::CosineAnnealingLrSchedulerConfig, linear::LinearLrSchedulerConfig,
         sequential::SequentialLrSchedulerConfig,
     },
     nn::loss::{MseLoss, Reduction},
-    optim::AdamConfig,
+    optim::AdamWConfig,
     prelude::*,
     train::{
         InferenceStep, Learner, MetricEarlyStoppingStrategy, RegressionOutput, StoppingCondition,
@@ -121,11 +122,14 @@ impl InferenceStep for Autoencoder {
 #[serde(crate = "burn::serde")]
 pub struct TrainingConfig {
     pub model: AutoencoderConfig,
-    pub optimizer: AdamConfig,
     pub num_epochs: usize,
     pub batch_size: usize,
     pub patience: Option<usize>,
     pub seed: u64,
+
+    /// Optimizer configuration.
+    #[serde(default = "default_optimizer_config")]
+    pub optimizer: AdamWConfig,
 
     /// Directory containing the downloaded VoiceBank Parquet shards.
     #[serde(default = "default_dataset_dir")]
@@ -153,10 +157,10 @@ pub struct TrainingConfig {
 }
 
 impl TrainingConfig {
-    pub fn new(model: AutoencoderConfig, optimizer: AdamConfig) -> Self {
+    pub fn new(model: AutoencoderConfig) -> Self {
         Self {
             model,
-            optimizer,
+            optimizer: default_optimizer_config(),
             dataset_dir: default_dataset_dir(),
             validation_speakers: default_validation_speakers(),
             num_epochs: DEFAULT_NUM_EPOCHS,
@@ -172,6 +176,12 @@ impl TrainingConfig {
 
     pub fn with_dataset_dir(mut self, dataset_dir: impl Into<PathBuf>) -> Self {
         self.dataset_dir = dataset_dir.into();
+
+        self
+    }
+
+    pub fn with_optimizer(mut self, optimizer: AdamWConfig) -> Self {
+        self.optimizer = optimizer;
 
         self
     }
@@ -202,6 +212,12 @@ impl TrainingConfig {
 
     pub fn with_seed(mut self, seed: u64) -> Self {
         self.seed = seed;
+
+        self
+    }
+
+    pub fn with_patience(mut self, patience: Option<usize>) -> Self {
+        self.patience = patience;
 
         self
     }
@@ -237,6 +253,14 @@ fn default_dataset_dir() -> PathBuf {
         .join("../../datasets/VoiceBank-DEMAND-16k/data")
         .canonicalize()
         .expect("canonicalizing default dataset directory should not fail")
+}
+
+fn default_optimizer_config() -> AdamWConfig {
+    let weight_decay_penalty: f32 = 1.0e-4;
+    let max_norm_clip: f32 = 1.0;
+    AdamWConfig::new()
+        .with_weight_decay(weight_decay_penalty)
+        .with_grad_clipping(Some(GradientClippingConfig::Norm(max_norm_clip)))
 }
 
 fn default_validation_speakers() -> Vec<String> {

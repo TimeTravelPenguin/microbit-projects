@@ -1,5 +1,8 @@
 # Audio dataset loading and training
 
+See [TODO.md](TODO.md) for the project review, staged denoising improvements,
+and micro:bit deployment plan, with completion checks for each task.
+
 The `train` feature provides `dataset::VoiceBankDataset<N>` and
 `dataset::VoiceBankDataLoader<N>` for the locally downloaded
 [JacobLinCool/VoiceBank-DEMAND-16k dataset](https://huggingface.co/datasets/JacobLinCool/VoiceBank-DEMAND-16k).
@@ -57,7 +60,7 @@ Training and validation never open those shards.
 ## Command-line training and evaluation
 
 The executable uses [Clap subcommands](https://docs.rs/clap/4.6.7/clap/_derive/_tutorial/index.html#subcommands).
-Use `--help`, `train --help`, or `test --help` to list options.
+Use `--help`, `train --help`, `test --help`, or `process --help` to list options.
 
 ```sh
 cargo run -p micro-autoenc -- train --artifact-dir artifacts/run-01 --epochs 10
@@ -96,13 +99,34 @@ writing to the run directory. Use `--split validation` for validation measuremen
 `--batch-size` to override the saved batch size, or a positional directory to
 relocate the dataset.
 
-Both commands default to CPU. On a compatible Mac, append `--device metal` to use
-Burn's Metal backend. For example:
+Commands default to Burn's Metal backend. Use `--device cpu` to select Flex CPU
+inference or training. On a compatible Mac, for example:
 
 ```sh
 cargo run -p micro-autoenc -- train datasets/VoiceBank-DEMAND-16k/data \
   --artifact-dir artifacts/metal-run-01 --device metal
 ```
+
+## Process an audio file
+
+```sh
+cargo run -p micro-autoenc -- --device cpu process \
+  artifacts/run-01 noisy.wav denoised.wav
+```
+
+The first positional argument is a run directory containing `config.json` and
+`model.bpk`. No dataset is needed. The input must be a non-empty mono, 16 kHz,
+16-bit integer PCM WAV, matching the training data. Other formats are rejected
+without automatic resampling or channel conversion.
+
+Processing streams one 256-sample frame at a time with dropout disabled and the
+same `sample / 32768.0` scaling as training. The last frame is zero-padded for
+inference, then trimmed so the output has exactly the original sample count.
+Predictions are rounded and clipped to PCM16. The output is a new WAV with the
+same audio format; other WAV metadata is not copied. Existing output files,
+including the input file itself, are never overwritten. The output is published
+only after the complete WAV has been written. Temporary files are cleaned up if
+processing fails.
 
 ## Use with Burn 0.22.0-pre.4
 
@@ -269,6 +293,8 @@ series larger than the graph's point budget.
 The CLI smoke test invokes `index`, `train`, and `test` in separate processes,
 checks configuration overrides, exercises several layer depths with the same
 executable, and verifies evaluation agrees across batch sizes.
+Audio processing tests use known model weights to verify PCM scaling, frame
+boundaries, zero-padding, output length, clipping, invalid inputs, and file protection.
 
 Polars, Hound, Rand, Anyhow, CSV, Plotters, and all dataset/executable code are gated behind
 `train`. The feature-disabled host check does not establish micro:bit firmware

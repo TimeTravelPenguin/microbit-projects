@@ -557,7 +557,8 @@ fn training_streams_audio_for_multiple_epochs_and_exports_reloadable_weights() {
     // Training must validate on held-out training speakers, never test shards.
     std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
     let model_config = AutoencoderConfig::new(4, 2, [6, 5], [6]).with_dropout([0.1, 0.1], [0.2]);
-    let config = TrainingConfig::new(model_config.clone(), AdamConfig::new())
+    let config = TrainingConfig::new(model_config.clone())
+        .with_optimizer(AdamConfig::new())
         .with_dataset_dir(directory.path())
         .with_num_epochs(2)
         .with_batch_size(2)
@@ -691,11 +692,14 @@ fn cli_roundtrip(encoder_hidden: Vec<usize>, decoder_hidden: Vec<usize>) {
     // open the intentionally malformed test shard.
     std::fs::write(directory.path().join("test-00000.parquet"), b"not parquet").unwrap();
     let config_path = directory.path().join("input-config.json");
-    TrainingConfig::new(
-        AutoencoderConfig::new(256, 2, encoder_hidden.clone(), decoder_hidden.clone()),
-        AdamConfig::new(),
-    )
+    TrainingConfig::new(AutoencoderConfig::new(
+        256,
+        2,
+        encoder_hidden.clone(),
+        decoder_hidden.clone(),
+    ))
     .with_dataset_dir("missing-directory")
+    .with_optimizer(AdamConfig::new())
     .with_learning_rate_range(0.0001, 0.01)
     .with_warmup_fraction(0.25)
     .save(&config_path)
