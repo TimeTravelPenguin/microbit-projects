@@ -1,6 +1,20 @@
 [workspace]
 resolver = "3"
-members = ["projects/*"]
+members = ["projects/*", "crates/*"]
+
+[workspace.dependencies]
+cortex-m = { version = "0.7.9", features = ["critical-section-single-core", "inline-asm"] }
+cortex-m-rt = "0.7.7"
+embedded-hal = "1.0.0"
+embedded-io = "0.7.1"
+heapless = "0.9.3"
+microbit-v2 = "0.16.0"
+microbit-power = { path = "crates/microbit-power" }
+nrf52833-hal = "0.19.0"
+panic-halt = "1.0.0"
+panic-rtt-target = "0.2.0"
+rand = { version = "0.9", default-features = false, features = ["small_rng"] }
+rtt-target = "0.6.2"
 
 [workspace.lints.clippy]
 nursery = "allow"
@@ -10,3 +24,8 @@ opt-level = 3
 strip = true
 lto = true
 codegen-units = 1
+
+[profile.firmware]
+inherits = "release"
+debug = 2
+strip = false

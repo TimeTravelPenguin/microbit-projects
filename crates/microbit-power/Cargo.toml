@@ -1,0 +1,17 @@
+[package]
+name = "microbit-power"
+version = "0.1.0"
+edition = "2024"
+description = "Cooperative reset-button power management for the micro:bit V2"
+
+[features]
+default = ["hardware"]
+hardware = ["dep:cortex-m", "dep:microbit-v2"]
+
+[dependencies]
+embedded-hal.workspace = true
+cortex-m = { workspace = true, optional = true }
+microbit-v2 = { workspace = true, optional = true }
+
+[lints]
+workspace = true

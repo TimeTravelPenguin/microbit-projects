@@ -1,0 +1,13 @@
+[alias]
+build-host = "build -p micro-autoenc"
+build-tictactoe = "build -p micro-tictactoe --target thumbv7em-none-eabihf"
+flash-tictactoe = "embed --work-dir projects/micro-tictactoe"
+
+[target.thumbv7em-none-eabihf]
+runner = "probe-rs run --chip nRF52833_xxAA"
+rustflags = [
+  "-C",
+  "linker=rust-lld",
+  "-C",
+  "link-arg=-Tlink.x",
+]
