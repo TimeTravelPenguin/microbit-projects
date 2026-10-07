@@ -4755,6 +4755,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "micro-arcade"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embedded-hal 1.0.0",
+ "embedded-io",
+ "heapless 0.9.3",
+ "libm",
+ "microbit-power",
+ "microbit-v2",
+ "nrf52833-hal",
+ "panic-halt",
+ "panic-rtt-target",
+ "rand 0.9.5",
+ "rtt-target",
+]
+
+[[package]]
 name = "micro-autoenc"
 version = "0.1.0"
 dependencies = [
@@ -4768,24 +4787,6 @@ dependencies = [
  "rand 0.10.3",
  "serde_json",
  "tempfile",
-]
-
-[[package]]
-name = "micro-tictactoe"
-version = "0.1.0"
-dependencies = [
- "cortex-m",
- "cortex-m-rt",
- "embedded-hal 1.0.0",
- "embedded-io",
- "heapless 0.9.3",
- "microbit-power",
- "microbit-v2",
- "nrf52833-hal",
- "panic-halt",
- "panic-rtt-target",
- "rand 0.9.5",
- "rtt-target",
 ]
 
 [[package]]

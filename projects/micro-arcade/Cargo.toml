@@ -1,5 +1,5 @@
 [package]
-name = "micro-tictactoe"
+name = "micro-arcade"
 version = "0.1.0"
 edition = "2024"
 
@@ -9,8 +9,9 @@ cortex-m-rt.workspace = true
 embedded-hal.workspace = true
 embedded-io.workspace = true
 heapless.workspace = true
-microbit-v2.workspace = true
+libm.workspace = true
 microbit-power.workspace = true
+microbit-v2.workspace = true
 nrf52833-hal.workspace = true
 panic-halt.workspace = true
 panic-rtt-target.workspace = true

@@ -61,7 +61,7 @@ impl Speaker {
         self.pwm.enable_channel(Channel::C0);
         self.timer.start(u32::MAX);
 
-        for sample_bytes in clip.samples.chunks_exact(2) {
+        for sample_bytes in clip.samples.as_chunks::<2>().0 {
             let sample = i16::from_le_bytes([sample_bytes[0], sample_bytes[1]]);
             self.pwm.reset_event(PwmEvent::SeqStarted(Seq::Seq0));
             self.pwm
