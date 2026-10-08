@@ -1,0 +1,12 @@
+[default.general]
+chip = "nrf52833_xxAA"
+
+# Halts before main, including before rtt initialization.
+[default.reset]
+halt_afterwards = false
+
+[default.rtt]
+enabled = true
+
+[default.gdb]
+enabled = false

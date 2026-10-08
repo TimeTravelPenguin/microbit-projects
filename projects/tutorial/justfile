@@ -1,0 +1,16 @@
+build:
+    cargo build
+    cargo build --release
+
+dump-debug: build
+    cargo objdump -- --disassemble \
+      --no-show-raw-insn --source > debug.asm
+
+dump-release: build
+    cd ../.. && cargo objdump -p tutorial --bin tutorial \
+      --target thumbv7em-none-eabihf --profile firmware -- \
+      --disassemble --no-show-raw-insn --demangle \
+      --source > release.asm
+    mv ../../release.asm .
+
+dump: build dump-debug dump-release

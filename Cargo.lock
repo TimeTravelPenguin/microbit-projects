@@ -7659,6 +7659,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "serial-setup"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "embedded-io",
+ "microbit-v2",
+]
+
+[[package]]
 name = "sha1"
 version = "0.10.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -8855,6 +8864,27 @@ dependencies = [
  "turso_sdk_kit",
  "turso_sdk_kit_macros",
  "turso_sync_engine",
+]
+
+[[package]]
+name = "tutorial"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embedded-hal 1.0.0",
+ "embedded-io",
+ "heapless 0.9.3",
+ "libm",
+ "microbit-power",
+ "microbit-v2",
+ "nrf52833-hal",
+ "panic-halt",
+ "panic-rtt-target",
+ "rand 0.9.5",
+ "rtt-target",
+ "serial-setup",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

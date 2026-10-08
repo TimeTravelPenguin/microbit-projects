@@ -1,0 +1,7 @@
+[default_config]
+version = "0.10.1"
+assembler = "gas"
+instruction_set = "arm"
+
+[default_config.opts]
+diagnostics = false
