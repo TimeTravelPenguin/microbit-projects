@@ -16,6 +16,7 @@ panic-halt = "1.0.0"
 panic-rtt-target = "0.2.0"
 rand = { version = "0.9", default-features = false, features = ["small_rng"] }
 rtt-target = "0.6.2"
+serial-setup = { path = "crates/serial-setup" }
 
 [workspace.lints.clippy]
 nursery = "allow"

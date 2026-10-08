@@ -1,0 +1,9 @@
+[package]
+name = "serial-setup"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cortex-m.workspace = true
+embedded-io.workspace = true
+microbit-v2.workspace = true
