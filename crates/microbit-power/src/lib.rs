@@ -4,12 +4,19 @@
 //! pass an application step to [`PowerOff::run`] or call [`PowerOff::check`] at a
 //! safe boundary in your own loop. Setup allows a short grace period for a late
 //! reset-button event before the application starts.
+//!
+//! Applications using the motion sensors can share the internal I²C controller
+//! through [`SharedI2c`] and [`PowerOff::new_shared`]. They must call
+//! [`PowerOff::check_startup_with`] before their first frame to include device
+//! cleanup in startup shutdown handling.
 
 #![no_std]
 
 mod protocol;
+mod shared_i2c;
 
 pub use protocol::{Error, PowerManager};
+pub use shared_i2c::SharedI2c;
 
 #[cfg(feature = "hardware")]
 mod hardware;

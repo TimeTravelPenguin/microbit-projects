@@ -10,6 +10,7 @@ use embedded_hal::{delay::DelayNs, digital::InputPin, i2c::I2c};
 const INTERFACE_ADDRESS: u8 = 0x70;
 const RESPONSE_LEN: usize = 12;
 const WAIT_ATTEMPTS: usize = 50;
+#[cfg(any(feature = "hardware", test))]
 const STARTUP_GRACE_MS: usize = 100;
 
 #[derive(Clone, Copy)]
@@ -76,6 +77,7 @@ impl<Bus: I2c, InterruptPin: InputPin> PowerManager<Bus, InterruptPin> {
     /// The bounded guard spans several 30 ms interface ticks; the protocol does
     /// not formally guarantee when the event arrives. Poll immediately, then
     /// wait one millisecond between samples, retrying transient errors.
+    #[cfg(any(feature = "hardware", test))]
     pub(crate) fn poll_startup(
         &mut self,
         delay: &mut impl DelayNs,

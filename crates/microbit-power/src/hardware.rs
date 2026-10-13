@@ -1,5 +1,8 @@
-use core::convert::Infallible;
-use embedded_hal::delay::DelayNs;
+use core::{cell::RefCell, convert::Infallible};
+use embedded_hal::{
+    delay::DelayNs,
+    i2c::{ErrorType, I2c, Operation},
+};
 use microbit::{
     board::I2CInternalPins,
     hal::{
@@ -15,21 +18,53 @@ use crate::{Error, PowerManager};
 /// Communication failure reported by the micro:bit V2 power helper.
 pub type HardwareError = Error<twim::Error, Infallible>;
 
-type BoardPowerManager = PowerManager<Twim<pac::TWIM0>, P0_25<Input<PullUp>>>;
+type BoardPowerManager<'bus> = PowerManager<InternalBus<'bus>, P0_25<Input<PullUp>>>;
+
+enum InternalBus<'bus> {
+    Owned(Twim<pac::TWIM0>),
+    Shared(&'bus RefCell<Twim<pac::TWIM0>>),
+}
+
+impl InternalBus<'_> {
+    fn disable(&mut self) {
+        match self {
+            Self::Owned(bus) => bus.disable(),
+            Self::Shared(bus) => bus.borrow_mut().disable(),
+        }
+    }
+}
+
+impl ErrorType for InternalBus<'_> {
+    type Error = twim::Error;
+}
+
+impl I2c for InternalBus<'_> {
+    fn transaction(
+        &mut self,
+        address: u8,
+        operations: &mut [Operation<'_>],
+    ) -> Result<(), Self::Error> {
+        match self {
+            Self::Owned(bus) => bus.transaction(address, operations),
+            Self::Shared(bus) => bus.borrow_mut().transaction(address, operations),
+        }
+    }
+}
 
 /// Checks reset-button events and enters System OFF after a long press.
 ///
-/// This helper reserves the internal I²C bus, its shared interrupt input, TIMER3,
-/// and POWER. Call it at a safe boundary after active DMA operations finish.
-/// Drivers for the motion sensors cannot independently own the same I²C bus.
-pub struct PowerOff {
-    manager: Option<BoardPowerManager>,
+/// This helper owns or shares the internal I²C bus and reserves its shared
+/// interrupt input, TIMER3, and POWER. Call it at a safe boundary after active DMA
+/// operations finish. [`Self::new_shared`] allows motion-sensor drivers to use
+/// the same bus through [`crate::SharedI2c`].
+pub struct PowerOff<'bus> {
+    manager: Option<BoardPowerManager<'bus>>,
     timer: Timer<pac::TIMER3>,
     power: pac::POWER,
     latest_error: Option<HardwareError>,
 }
 
-impl PowerOff {
+impl PowerOff<'static> {
     /// Configures power management and waits briefly for a late startup event.
     #[doc(hidden)]
     pub fn new(
@@ -40,18 +75,45 @@ impl PowerOff {
         power: pac::POWER,
     ) -> Self {
         let i2c = Twim::new(i2c, pins.into(), Frequency::K100);
-        let interrupt = interrupt.into_pullup_input();
+        let mut power = Self::with_bus(InternalBus::Owned(i2c), interrupt, timer, power);
+        power.check_startup_with(|| {});
 
-        let mut power = Self {
-            manager: Some(PowerManager::new(i2c, interrupt)),
+        power
+    }
+}
+
+impl<'bus> PowerOff<'bus> {
+    /// Uses an application-owned internal bus shared with motion-sensor drivers.
+    ///
+    /// Configure TWIM0 on the internal P0.08/P0.16 pins, wrap it in a `RefCell`,
+    /// and give each sensor a [`crate::SharedI2c`] handle. All bus access must run
+    /// at the same interrupt priority; this helper does not mask interrupts.
+    ///
+    /// This constructor defers startup polling so application-specific cleanup
+    /// is available. Call [`Self::check_startup_with`] after creating the device
+    /// drivers and before the first frame. The helper disables the internal
+    /// controller only after the power-down handshake has completed.
+    pub fn new_shared(
+        bus: &'bus RefCell<Twim<pac::TWIM0>>,
+        interrupt: P0_25<Disconnected>,
+        timer: pac::TIMER3,
+        power: pac::POWER,
+    ) -> Self {
+        Self::with_bus(InternalBus::Shared(bus), interrupt, timer, power)
+    }
+
+    fn with_bus(
+        bus: InternalBus<'bus>,
+        interrupt: P0_25<Disconnected>,
+        timer: pac::TIMER3,
+        power: pac::POWER,
+    ) -> Self {
+        Self {
+            manager: Some(PowerManager::new(bus, interrupt.into_pullup_input())),
             timer: Timer::new(timer),
             power,
             latest_error: None,
-        };
-
-        power.check_startup();
-
-        power
+        }
     }
 
     /// Runs an application step repeatedly, checking power events between steps.
@@ -122,13 +184,21 @@ impl PowerOff {
         self.latest_error.as_ref()
     }
 
-    fn check_startup(&mut self) {
+    /// Polls through the startup grace period using application-specific cleanup.
+    ///
+    /// Call once before the first frame when using [`Self::new_shared`]. Long
+    /// reset-button presses restart the processor, so attached devices and motion
+    /// sensors can still be active from the previous run. Cleanup must stop those
+    /// devices before the shutdown handshake. Keep the internal bus enabled;
+    /// this helper disables it after the handshake, before entering System OFF.
+    pub fn check_startup_with(&mut self, cleanup: impl FnOnce()) {
+        self.latest_error = None;
         let Some(manager) = self.manager.as_mut() else {
             return;
         };
 
         match manager.poll_startup(&mut self.timer) {
-            Ok(true) => self.check(),
+            Ok(true) => self.check_with(cleanup),
             Ok(false) => {}
             Err(error) => self.latest_error = Some(error),
         }

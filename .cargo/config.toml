@@ -2,6 +2,8 @@
 build-host = "build -p micro-autoenc"
 build-tictactoe = "build -p micro-tictactoe --target thumbv7em-none-eabihf"
 flash-tictactoe = "embed --work-dir projects/micro-tictactoe"
+build-view = "build -p micro-view --target thumbv7em-none-eabihf"
+flash-view = "embed --work-dir projects/micro-view"
 
 [target.thumbv7em-none-eabihf]
 runner = "probe-rs run --chip nRF52833_xxAA"

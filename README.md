@@ -11,9 +11,11 @@ Below is a list of current projects.
 | ------------------ | ---------------------------------------------------- |
 | [microbit-autoenc] | Use an autoencoder to remove noise from audio        |
 | [micro-arcade]     | Learn micro:bit programming with a small arcade game |
+| [micro-view]       | Plot live accelerometer data on a Kitronik VIEW OLED |
 
 [microbit-autoenc]: ./projects/micro-autoenc/
 [micro-arcade]: ./projects/micro-arcade/
+[micro-view]: ./projects/micro-view/
 
 ## Building and Flashing
 
@@ -24,6 +26,8 @@ the micro:bit. From the workspace root, use the appropriate Cargo alias:
 cargo build-host
 cargo build-arcade
 cargo flash-arcade
+cargo build-view --profile firmware
+cargo flash-view -- --profile firmware
 ```
 
 The Rust toolchain includes the micro:bit target and LLVM tools. The root
