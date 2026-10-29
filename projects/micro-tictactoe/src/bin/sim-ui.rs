@@ -1,19 +1,11 @@
-use embedded_graphics::{
-    Drawable,
-    draw_target::DrawTarget,
-    geometry::{Dimensions, Size},
-    mono_font::iso_8859_10::FONT_6X10,
-    pixelcolor::BinaryColor,
-    primitives::Rectangle,
-    text::Alignment as TextAlignment,
-};
+use embedded_graphics::{geometry::Size, pixelcolor::BinaryColor, primitives::Rectangle};
 use embedded_graphics_simulator::{
     BinaryColorTheme, OutputSettingsBuilder, SimulatorDisplay, SimulatorEvent, Window,
     sdl2::{Keycode, Mod},
 };
-use embedded_layout::align::{Align, Alignment, HorizontalAlignment, horizontal, vertical};
+use embedded_layout::align::{Alignment, HorizontalAlignment, horizontal};
 
-use micro_tictactoe::ui::{Menu, MenuAction, MenuStyle};
+use micro_tictactoe::{app::App, settings::Settings};
 
 #[derive(Clone, Copy, Default)]
 enum MenuAlignment {
@@ -37,19 +29,8 @@ impl HorizontalAlignment for MenuAlignment {}
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut display = SimulatorDisplay::<BinaryColor>::new(Size::new(128, 64));
-    let display_area = display.bounding_box();
-
     let mut current_alignment = MenuAlignment::Center;
-    let menu_style = MenuStyle {
-        font: &FONT_6X10,
-        text_alignment: TextAlignment::Center,
-        ..Default::default()
-    };
-
-    let mut menu =
-        Menu::<BinaryColor, 24, 4>::new_with_items(&["New game", "Join game", "Settings"])?
-            .set_style(menu_style)
-            .align_to(&display_area, current_alignment, vertical::Center);
+    let mut app = App::new(Settings::default())?;
 
     let output_settings = OutputSettingsBuilder::new()
         .theme(BinaryColorTheme::OledWhite)
@@ -60,8 +41,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Tab/Down: next | Shift+Tab/Up: previous | Enter: select | T: align");
 
     'running: loop {
-        display.clear(BinaryColor::Off)?;
-        menu.draw(&mut display)?;
+        app.draw_aligned(&mut display, current_alignment)?;
         window.update(&display);
 
         for event in window.events() {
@@ -73,23 +53,20 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                     repeat: false,
                 } => match keycode {
                     Keycode::Tab if keymod.intersects(Mod::LSHIFTMOD | Mod::RSHIFTMOD) => {
-                        menu.handle_action(MenuAction::PreviousItem);
+                        app.select_previous();
                     }
 
                     Keycode::Tab | Keycode::Down => {
-                        menu.handle_action(MenuAction::NextItem);
+                        app.select_next();
                     }
 
                     Keycode::Up => {
-                        menu.handle_action(MenuAction::PreviousItem);
+                        app.select_previous();
                     }
 
                     Keycode::Return => {
-                        if let (Some(index), Some(item)) = (
-                            menu.handle_action(MenuAction::SelectItem),
-                            menu.selected_item(),
-                        ) {
-                            println!("Selected item {index}: {item}");
+                        if let Some(event) = app.select_item() {
+                            println!("Menu event: {event:?}");
                         }
                     }
 
@@ -99,8 +76,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             MenuAlignment::Center => MenuAlignment::Right,
                             MenuAlignment::Right => MenuAlignment::Left,
                         };
-
-                        menu = menu.align_to(&display_area, current_alignment, vertical::Center);
                     }
 
                     _ => {}

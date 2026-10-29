@@ -15,6 +15,7 @@ use embedded_graphics::{
 use embedded_layout::align::{Align, horizontal, vertical};
 
 use super::{Menu, MenuAction, MenuError, MenuStyle};
+use crate::ui::TextInput;
 
 fn mock_display<C: PixelColor>() -> MockDisplay<C> {
     let mut display = MockDisplay::new();
@@ -368,4 +369,117 @@ fn changing_item_alignment_and_selection_repaints_the_same_bounds() {
     assert_eq!(menu.bounding_box(), original_bounds);
     assert_eq!(display.affected_area(), original_bounds);
     assert_eq!(display, fresh);
+}
+
+#[test]
+fn input_focus_changes_only_its_value_and_repaints_when_navigation_moves() {
+    let input = TextInput::new("Name", "abc", true).unwrap();
+    let mut menu = Menu::<BinaryColor, 4, 2>::new();
+    menu.add_text_input(input).unwrap();
+    menu.add_item("Back").unwrap();
+
+    let mut focused = mock_display();
+    menu.draw(&mut focused).unwrap();
+
+    menu.select_next();
+    let mut unfocused = mock_display();
+    menu.draw(&mut unfocused).unwrap();
+
+    // The label occupies the left of the row and must never be highlighted.
+    for point in Rectangle::new(Point::zero(), Size::new(24, 10)).points() {
+        assert_eq!(focused.get_pixel(point), unfocused.get_pixel(point));
+    }
+
+    // The full value box, including glyphs, uses the same inversion as actions.
+    for point in Rectangle::new(Point::new(24, 0), Size::new(24, 10)).points() {
+        assert_eq!(
+            focused.get_pixel(point),
+            unfocused.get_pixel(point).map(BinaryColor::invert)
+        );
+    }
+
+    assert_eq!(focused.get_pixel(Point::new(24, 0)), Some(BinaryColor::On));
+    assert_eq!(
+        unfocused.get_pixel(Point::new(24, 0)),
+        Some(BinaryColor::Off)
+    );
+    assert_eq!(
+        unfocused.get_pixel(Point::new(0, 11)),
+        Some(BinaryColor::On)
+    );
+
+    menu.draw(&mut focused).unwrap();
+    assert_eq!(focused, unfocused);
+}
+
+#[test]
+fn selecting_an_input_starts_editing_and_locks_menu_navigation() {
+    let mut menu = Menu::<BinaryColor, 4, 2>::new();
+    menu.add_item("Back").unwrap();
+    menu.add_text_input(TextInput::new("Name", "abc", true).unwrap())
+        .unwrap();
+
+    menu.select_next();
+    assert_eq!(menu.selected_item(), Some("Name"));
+    assert_eq!(menu.select_item(), None);
+    assert!(menu.is_editing());
+
+    menu.select_next();
+    menu.select_previous();
+    assert_eq!(menu.selected_index(), Some(1));
+
+    let input = menu.selected_text_input_mut().unwrap();
+    input.increment();
+    input.cancel_edit();
+    assert_eq!(menu.text_input(1).unwrap().value(), "abc");
+
+    menu.select_next();
+    assert_eq!(menu.select_item(), Some(0));
+}
+
+#[test]
+fn selecting_a_read_only_input_leaves_menu_navigation_available() {
+    let mut menu = Menu::<BinaryColor, 4, 2>::new();
+    menu.add_text_input(TextInput::new("Name", "abc", false).unwrap())
+        .unwrap();
+    menu.add_item("Back").unwrap();
+
+    assert_eq!(menu.select_item(), None);
+    assert!(!menu.is_editing());
+
+    menu.select_next();
+    assert_eq!(menu.select_item(), Some(1));
+    assert_eq!(menu.text_input(0).unwrap().value(), "abc");
+}
+
+#[test]
+fn menu_editor_uses_menu_style_and_fills_the_display_instead_of_a_row() {
+    let mut style = MenuStyle::new(&FONT_6X10, Rgb888::GREEN, Rgb888::BLUE);
+    style.padding = Size::new(1, 1);
+
+    let mut menu = Menu::<Rgb888, 4, 2>::with_style(style);
+    menu.add_text_input(
+        TextInput::with_style(
+            "Name",
+            "abc",
+            true,
+            MenuStyle::new(&FONT_5X8, Rgb888::RED, Rgb888::WHITE),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+
+    menu.select_item();
+    let mut display = mock_display();
+    menu.draw(&mut display).unwrap();
+
+    assert_eq!(display.affected_area(), display.bounding_box());
+    assert_eq!(display.get_pixel(Point::zero()), Some(Rgb888::BLUE));
+
+    for point in display.bounding_box().points() {
+        assert!(matches!(
+            display.get_pixel(point),
+            Some(Rgb888::GREEN | Rgb888::BLUE)
+        ));
+    }
 }

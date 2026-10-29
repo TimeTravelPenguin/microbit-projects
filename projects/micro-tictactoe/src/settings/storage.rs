@@ -3,15 +3,15 @@ use core::cell::RefCell;
 use cortex_m::interrupt::{self, Mutex};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_futures::block_on;
-use heapless::String;
-use microbit::pac::{self, NVMC};
+use microbit::pac;
 use nrf52833_hal::nvmc::{Nvmc, NvmcError};
 use sequential_storage::{
     cache::{Cache, Uncached},
     map::{MapConfig, MapStorage, PostcardValue},
 };
-use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+use super::{NAME_CAPACITY, Settings};
 
 const SETTINGS_FLASH_SIZE: u32 = 8192;
 const SETTINGS_KEY: u8 = 0;
@@ -35,8 +35,6 @@ pub enum SettingsError {
     WriteError(StorageError),
 }
 
-const NAME_CAPACITY: usize = 8;
-
 /*
 Info about the maximum size of a serialized Settings struct in Postcard format.
 
@@ -57,11 +55,6 @@ then grows as needed. Integers use variable-length encoding.
 const SETTINGS_SCRATCH_SIZE: usize = (1 + SETTINGS_MAX_SERIALIZED_SIZE).next_multiple_of(4);
 const SETTINGS_MAX_SERIALIZED_SIZE: usize = 1 + NAME_CAPACITY; // length prefix + contents
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Settings {
-    pub user_name: String<NAME_CAPACITY>, // Size: 1 + NAME_CAPACITY
-}
-
 impl PostcardValue<'_> for Settings {}
 
 pub fn init(nvmc: pac::NVMC) -> Result<(), SettingsError> {
@@ -73,20 +66,20 @@ pub fn init(nvmc: pac::NVMC) -> Result<(), SettingsError> {
         Cache::new_uncached(),
     );
 
-    let mut err = false;
+    let mut already_initialized = false;
 
     interrupt::free(|ctx| {
         let mut slot = STORAGE.borrow(ctx).borrow_mut();
 
         if slot.is_some() {
-            err = true;
+            already_initialized = true;
             return;
         }
 
         *slot = Some(storage);
     });
 
-    if err {
+    if already_initialized {
         return Err(SettingsError::AlreadyInitialized);
     }
 
@@ -100,13 +93,8 @@ pub fn load() -> Result<Settings, SettingsError> {
         let mut scratch = [0u8; SETTINGS_SCRATCH_SIZE];
 
         let settings = block_on(storage.fetch_item::<Settings>(&mut scratch, &SETTINGS_KEY))
-            .map_err(SettingsError::ReadError)
-            .map(|s| {
-                s.unwrap_or_else(|| Settings {
-                    user_name: String::try_from("Player")
-                        .expect("Failed to create default user name"),
-                })
-            })?;
+            .map_err(SettingsError::ReadError)?
+            .unwrap_or_default();
 
         Ok(settings)
     })
