@@ -1,0 +1,17 @@
+[package]
+name = "microbit-input"
+version = "0.1.0"
+edition = "2024"
+description = "Interrupt-driven button sampling for micro:bit V2"
+
+[features]
+default = []
+hardware = ["dep:cortex-m", "dep:embedded-hal", "dep:microbit-v2"]
+
+[dependencies]
+cortex-m = { workspace = true, optional = true }
+embedded-hal = { workspace = true, optional = true }
+microbit-v2 = { workspace = true, optional = true }
+
+[lints]
+workspace = true
