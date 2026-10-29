@@ -89,7 +89,8 @@ pub fn init(nvmc: pac::NVMC) -> Result<(), SettingsError> {
 pub fn load() -> Result<Settings, SettingsError> {
     interrupt::free(|ctx| {
         let mut slot = STORAGE.borrow(ctx).borrow_mut();
-        let storage = slot.as_mut().expect("Call settings::init first");
+        let storage = slot.as_mut().ok_or(SettingsError::Uninitialized)?;
+
         let mut scratch = [0u8; SETTINGS_SCRATCH_SIZE];
 
         let settings = block_on(storage.fetch_item::<Settings>(&mut scratch, &SETTINGS_KEY))
@@ -103,7 +104,8 @@ pub fn load() -> Result<Settings, SettingsError> {
 pub fn save(settings: &Settings) -> Result<(), SettingsError> {
     interrupt::free(|ctx| {
         let mut slot = STORAGE.borrow(ctx).borrow_mut();
-        let storage = slot.as_mut().expect("Call settings::init first");
+        let storage = slot.as_mut().ok_or(SettingsError::Uninitialized)?;
+
         let mut scratch = [0u8; SETTINGS_SCRATCH_SIZE];
 
         block_on(storage.store_item(&mut scratch, &SETTINGS_KEY, settings))
