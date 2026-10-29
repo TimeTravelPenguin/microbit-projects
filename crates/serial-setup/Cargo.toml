@@ -7,3 +7,6 @@ edition = "2021"
 cortex-m.workspace = true
 embedded-io.workspace = true
 microbit-v2.workspace = true
+
+[lints]
+workspace = true
