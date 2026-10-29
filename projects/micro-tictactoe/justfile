@@ -1,0 +1,3 @@
+[env("SDL_MAC_BACKGROUND_APP", "0")]
+run-sim-ui:
+  cargo run --bin sim-ui --features simulator --target host-tuple

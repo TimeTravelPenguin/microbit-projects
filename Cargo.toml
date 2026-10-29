@@ -1,22 +1,67 @@
 [workspace]
 resolver = "3"
-members = ["crates/*", "projects/*"]
+members = [
+  "crates/cardkb",
+  "crates/microbit-input",
+  "crates/microbit-power",
+  "crates/serial-setup",
+  "projects/micro-arcade",
+  "projects/micro-log",
+  "projects/micro-maze",
+  "projects/micro-radio",
+  "projects/micro-tictactoe",
+  "projects/micro-view",
+  "projects/micro-view-audio",
+  "projects/tutorial",
+]
+# Desktop training has its own workspace and lockfile.
+exclude = ["projects/micro-autoenc"]
 
 [workspace.dependencies]
-cortex-m = { version = "0.7.9", features = ["critical-section-single-core", "inline-asm"] }
-cortex-m-rt = "0.7.7"
+# Shared firmware crates opt into hardware in their consuming applications.
+cardkb = { path = "crates/cardkb", default-features = false }
+microbit-input = { path = "crates/microbit-input", default-features = false }
+microbit-power = { path = "crates/microbit-power", default-features = false }
+serial-setup = { path = "crates/serial-setup" }
+
+embassy-embedded-hal = { version = "0.6.0", default-features = false }
+# Each application selects its executor, chip, and time driver explicitly.
+embassy-executor = { version = "0.10.0", default-features = false }
+embassy-futures = { version = "0.1.2", default-features = false }
+embassy-nrf = { version = "0.11.0", default-features = false }
+embassy-sync = { version = "0.8.0", default-features = false }
+embassy-time = { version = "0.5.1", default-features = false }
+
+embedded-graphics = "0.8.2"
+embedded-graphics-simulator = "0.8.0"
+embedded-layout = "0.4.2"
+
 embedded-hal = "1.0.0"
+embedded-hal-async = "1.0.0"
+embedded-hal-bus = "0.3.0"
 embedded-io = "0.7.1"
+embedded-storage = "0.3.2"
+
+# All firmware targets the single-core nRF52833.
+cortex-m = { version = "0.7.10", default-features = false, features = ["critical-section-single-core"] }
+cortex-m-rt = "0.7.7"
+display-interface = "0.5.0"
 heapless = "0.9.3"
-libm = "0.2"
-microbit-power = { path = "crates/microbit-power" }
+libm = { version = "0.2", default-features = false, features = ["arch"] }
+lsm303agr = { version = "1.1.0" }
 microbit-v2 = "0.16.0"
-nrf52833-hal = "0.19.0"
+microfft = { version = "0.6.0", default-features = false }
+nrf52833-hal = { version = "0.19.0", default-features = false, features = ["rt"] }
+num_enum = { version = "0.7.6", default-features = false }
 panic-halt = "1.0.0"
 panic-rtt-target = "0.2.0"
+postcard = "1.0.2"
+# Match the rand_core 0.9 traits used by nrf-hal-common 0.19.
 rand = { version = "0.9", default-features = false, features = ["small_rng"] }
 rtt-target = "0.6.2"
-serial-setup = { path = "crates/serial-setup" }
+sequential-storage = { version = "8.0.2", features = ["postcard"] }
+serde = { version = "1.0.229", default-features = false, features = ["derive"] }
+ssd1306 = { version = "0.10.0", default-features = false, features = ["graphics"] }
 thiserror = { version = "2.0.21", default-features = false }
 
 [workspace.lints.clippy]

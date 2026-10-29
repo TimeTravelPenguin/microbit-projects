@@ -1,0 +1,52 @@
+[package]
+name = "micro-tictactoe"
+version = "0.1.0"
+edition = "2024"
+description = "A learning project for wireless micro:bit tic-tac-toe"
+publish = false
+
+[[bin]]
+bench = false
+name = "micro-tictactoe"
+test = false
+
+[[bin]]
+bench = false
+name = "sim-ui"
+path = "src/bin/sim-ui.rs"
+required-features = ["simulator"]
+
+[dependencies]
+cardkb = { workspace = true, features = ["blocking"] }
+embedded-graphics.workspace = true
+embedded-layout.workspace = true
+heapless = { workspace = true, features = ["serde"] }
+rand.workspace = true
+sequential-storage.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+[target.'cfg(not(target_name = "thumbv7em-none-eabihf"))'.dependencies]
+embedded-graphics-simulator = { workspace = true, optional = true }
+
+[target.thumbv7em-none-eabihf.dependencies]
+cortex-m.workspace = true
+cortex-m-rt.workspace = true
+display-interface.workspace = true
+embassy-embedded-hal.workspace = true
+embassy-futures.workspace = true
+embedded-hal.workspace = true
+embedded-hal-bus.workspace = true
+microbit-input = { workspace = true, features = ["hardware"] }
+microbit-v2.workspace = true
+nrf52833-hal.workspace = true
+panic-rtt-target.workspace = true
+rtt-target.workspace = true
+ssd1306.workspace = true
+
+[features]
+default = []
+simulator = ["dep:embedded-graphics-simulator"]
+
+[lints]
+workspace = true
