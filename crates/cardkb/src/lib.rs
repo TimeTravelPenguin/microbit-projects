@@ -9,7 +9,13 @@ pub mod blocking;
 pub mod key;
 
 use key::DecodeError;
-pub use key::{Key, decode_key};
+pub use key::{Key, KeyExt, decode_key};
+
+#[cfg(all(feature = "async", not(feature = "blocking")))]
+pub use r#async::CardKb;
+
+#[cfg(all(feature = "blocking", not(feature = "async")))]
+pub use blocking::CardKb;
 
 pub const CARDKB_I2C_ADDR: u8 = 0x5F;
 
