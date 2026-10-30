@@ -10,7 +10,7 @@ num_enum.workspace = true
 thiserror.workspace = true
 
 [features]
-default = ["async", "blocking"]
+default = ["blocking"]
 async = ["dep:embedded-hal-async"]
 blocking = ["dep:embedded-hal"]
 
