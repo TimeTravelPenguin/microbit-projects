@@ -17,7 +17,7 @@ path = "src/bin/sim-ui.rs"
 required-features = ["simulator"]
 
 [dependencies]
-cardkb = { workspace = true, features = ["blocking"] }
+cardkb = { workspace = true, features = ["async"] }
 embedded-graphics.workspace = true
 embedded-layout.workspace = true
 heapless = { workspace = true, features = ["serde"] }
@@ -34,15 +34,15 @@ cortex-m.workspace = true
 cortex-m-rt.workspace = true
 display-interface.workspace = true
 embassy-embedded-hal.workspace = true
+embassy-executor.workspace = true
 embassy-futures.workspace = true
+embassy-nrf = { workspace = true, features = ["rt"] }
+embassy-time.workspace = true
 embedded-hal.workspace = true
 embedded-hal-bus.workspace = true
-microbit-input = { workspace = true, features = ["hardware"] }
-microbit-v2.workspace = true
-nrf52833-hal.workspace = true
 panic-rtt-target.workspace = true
 rtt-target.workspace = true
-ssd1306.workspace = true
+ssd1306 = { workspace = true, features = ["async"] }
 
 [features]
 default = []

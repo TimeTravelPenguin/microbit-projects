@@ -3,8 +3,11 @@ use core::cell::RefCell;
 use cortex_m::interrupt::{self, Mutex};
 use embassy_embedded_hal::adapter::BlockingAsync;
 use embassy_futures::block_on;
-use microbit::pac;
-use nrf52833_hal::nvmc::{Nvmc, NvmcError};
+use embassy_nrf::{
+    Peri,
+    nvmc::{Error as NvmcError, Nvmc},
+    peripherals::NVMC,
+};
 use sequential_storage::{
     cache::{Cache, Uncached},
     map::{MapConfig, MapStorage, PostcardValue},
@@ -17,7 +20,7 @@ const SETTINGS_FLASH_SIZE: u32 = 8192;
 const SETTINGS_KEY: u8 = 0;
 
 type Storage =
-    MapStorage<u8, BlockingAsync<Nvmc<pac::NVMC>>, Cache<Uncached, Uncached, Uncached, u8>>;
+    MapStorage<u8, BlockingAsync<Nvmc<'static>>, Cache<Uncached, Uncached, Uncached, u8>>;
 
 pub type StorageError = sequential_storage::Error<NvmcError>;
 
@@ -57,33 +60,26 @@ const SETTINGS_MAX_SERIALIZED_SIZE: usize = 1 + NAME_CAPACITY; // length prefix 
 
 impl PostcardValue<'_> for Settings {}
 
-pub fn init(nvmc: pac::NVMC) -> Result<(), SettingsError> {
-    let nvmc = Nvmc::new(nvmc, unsafe { settings_flash() });
+pub fn init(nvmc: Peri<'static, NVMC>) -> Result<(), SettingsError> {
+    let nvmc = Nvmc::new(nvmc);
 
     let storage = MapStorage::new(
         BlockingAsync::new(nvmc),
-        const { MapConfig::new(0..SETTINGS_FLASH_SIZE) },
+        MapConfig::new(settings_flash_range()),
         Cache::new_uncached(),
     );
-
-    let mut already_initialized = false;
 
     interrupt::free(|ctx| {
         let mut slot = STORAGE.borrow(ctx).borrow_mut();
 
         if slot.is_some() {
-            already_initialized = true;
-            return;
+            return Err(SettingsError::AlreadyInitialized);
         }
 
         *slot = Some(storage);
-    });
 
-    if already_initialized {
-        return Err(SettingsError::AlreadyInitialized);
-    }
-
-    Ok(())
+        Ok(())
+    })
 }
 
 pub fn load() -> Result<Settings, SettingsError> {
@@ -113,19 +109,20 @@ pub fn save(settings: &Settings) -> Result<(), SettingsError> {
     })
 }
 
-unsafe fn settings_flash() -> &'static mut [u8] {
+fn settings_flash_range() -> core::ops::Range<u32> {
     unsafe extern "C" {
-        static mut _settings_start: u8;
+        static _settings_start: u8;
         static _settings_end: u8;
     }
 
-    let start = core::ptr::addr_of_mut!(_settings_start);
-    let length = core::ptr::addr_of!(_settings_end) as usize - start as usize;
+    let start = core::ptr::addr_of!(_settings_start) as u32;
+    let end = core::ptr::addr_of!(_settings_end) as u32;
+
     assert_eq!(
-        length, SETTINGS_FLASH_SIZE as usize,
+        end - start,
+        SETTINGS_FLASH_SIZE,
         "Settings flash size mismatch"
     );
 
-    // SAFETY: caller guarantees exclusive access to these reserved flash pages.
-    unsafe { core::slice::from_raw_parts_mut(start, length) }
+    start..end
 }
