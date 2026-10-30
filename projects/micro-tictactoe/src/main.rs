@@ -1,7 +1,6 @@
 #![no_std]
 #![no_main]
 
-use cardkb::{Key, key::KeyExt};
 use embassy_executor::Spawner;
 use embassy_nrf::{
     config::{Config, HfclkSource},
@@ -14,9 +13,9 @@ use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
 use micro_tictactoe::{
-    app::App,
+    app::{App, AppEffect},
     hardware::{Busses, Hardware},
-    input::buttons::{self, ButtonPresses},
+    input::{buttons, firmware_action},
     settings,
 };
 
@@ -67,7 +66,27 @@ async fn main(spawner: Spawner) {
         }
 
         let presses = buttons::take_presses();
-        needs_redraw |= handle_inputs(&mut app, key, presses);
+
+        if let Some(action) = firmware_action(
+            key,
+            presses.button_a > 0,
+            presses.button_b > 0,
+            app.is_editing(),
+        ) {
+            match app.handle(action) {
+                Ok(update) => {
+                    needs_redraw |= update.redraw;
+
+                    if let Some(effect) = update.effect {
+                        handle_effect(effect);
+                    }
+                }
+
+                Err(error) => {
+                    rprintln!("Failed to handle input: {:?}", error);
+                }
+            }
+        }
 
         if needs_redraw {
             app.draw(display).expect("Failed to draw screen");
@@ -79,69 +98,20 @@ async fn main(spawner: Spawner) {
     }
 }
 
-type FnKey = fn(Option<Key>) -> bool;
-type FnPresses = fn(ButtonPresses) -> bool;
+fn handle_effect(effect: AppEffect) {
+    match effect {
+        AppEffect::NewGame => {
+            rprintln!("New game requested");
+        }
 
-struct InputEvent {
-    key: FnKey,
-    presses: FnPresses,
-}
+        AppEffect::JoinGame => {
+            rprintln!("Join game requested");
+        }
 
-impl InputEvent {
-    fn new(key: FnKey, presses: FnPresses) -> Self {
-        Self { key, presses }
-    }
-
-    fn eval(&self, key: Option<Key>, presses: ButtonPresses) -> bool {
-        (self.key)(key) || (self.presses)(presses)
-    }
-}
-
-struct InputEvents {
-    select_next: InputEvent,
-    select_previous: InputEvent,
-    select_item: InputEvent,
-    back: InputEvent,
-}
-
-impl InputEvents {
-    fn new() -> Self {
-        Self {
-            select_next: InputEvent::new(
-                |key| key.is_key(Key::ArrowDown),
-                |presses| presses.button_a > 0 && presses.button_b == 0,
-            ),
-            select_previous: InputEvent::new(
-                |key| key.is_key(Key::ArrowUp),
-                |presses| presses.button_b > 0 && presses.button_a == 0,
-            ),
-            select_item: InputEvent::new(
-                |key| key.is_key(Key::Enter),
-                |presses| presses.button_b > 0 && presses.button_a == 0,
-            ),
-            back: InputEvent::new(|key| key.is_key(Key::Escape), |_| false),
+        AppEffect::SaveSettings(settings) => {
+            if let Err(error) = settings::save(&settings) {
+                rprintln!("Failed to save settings: {:?}", error);
+            }
         }
     }
-}
-
-fn handle_inputs(app: &mut App, key: Option<Key>, presses: ButtonPresses) -> bool {
-    let mut needs_redraw = false;
-
-    let input_events = InputEvents::new();
-
-    if input_events.select_next.eval(key, presses) {
-        app.select_next();
-        needs_redraw = true;
-    } else if input_events.select_previous.eval(key, presses) {
-        app.select_previous();
-        needs_redraw = true;
-    } else if input_events.select_item.eval(key, presses) {
-        app.select_item();
-        needs_redraw = true;
-    } else if input_events.back.eval(key, presses) {
-        app.back();
-        needs_redraw = true;
-    }
-
-    needs_redraw
 }

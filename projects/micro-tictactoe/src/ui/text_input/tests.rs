@@ -10,7 +10,9 @@ use embedded_graphics::{
     transform::Transform,
 };
 
-use super::{ALPHABET, MenuStyle, TextInput, TextInputError};
+use crate::ui::text_editor::ALPHABET;
+
+use super::{MenuStyle, TextInput, TextInputError};
 
 fn mock_display<C: PixelColor>() -> MockDisplay<C> {
     let mut display = MockDisplay::new();
@@ -128,6 +130,23 @@ fn invalid_updates_preserve_the_draft_cursor_and_cancellation_baseline() {
         TextInput::<BinaryColor, 4>::new("N\n", "a", true),
         Err(TextInputError::UnsupportedCharacter)
     ));
+}
+
+#[test]
+fn setting_a_value_while_editing_resets_the_cursor_and_cancellation_baseline() {
+    let mut input = TextInput::<BinaryColor, 4>::new("Name", "abc", true).unwrap();
+    input.begin_edit();
+    input.increment();
+    input.next_character();
+    input.set_value("xy").unwrap();
+
+    assert!(input.is_editing());
+    assert_eq!(input.value(), "xy");
+    assert_eq!(input.selected_character(), Some(0));
+    input.increment();
+    assert_eq!(input.value(), "yy");
+    assert!(input.cancel_edit());
+    assert_eq!(input.value(), "xy");
 }
 
 #[test]

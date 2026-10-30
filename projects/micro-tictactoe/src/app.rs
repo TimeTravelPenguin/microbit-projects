@@ -1,187 +1,180 @@
-//! Screen flow shared by firmware and simulator. Controls call these public
-//! methods; widgets do not depend on a keyboard or button layout.
+//! Screen flow shared by firmware and simulator. Controls produce semantic
+//! actions; the caller executes effects such as saving accepted settings.
 
-use embedded_graphics::{
-    Drawable, draw_target::DrawTarget, mono_font::ascii::FONT_6X10, pixelcolor::BinaryColor,
-    text::Alignment,
-};
+mod action;
+mod screen;
+mod update;
+
+pub use action::Action;
+pub use screen::Screen;
+pub use update::{AppEffect, AppUpdate};
+
+use embedded_graphics::{Drawable, draw_target::DrawTarget, pixelcolor::BinaryColor};
 use embedded_layout::align::{Align, HorizontalAlignment, horizontal, vertical};
+use thiserror::Error;
 
 use crate::{
     settings::{NAME_CAPACITY, Settings},
-    ui::{Menu, MenuStyle, TextInput, TextInputError},
+    ui::{MenuError, TextEditor, TextInputError},
 };
+use screen::{MainCommand, ScreenState, SettingsCommand};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Screen {
-    MainMenu,
-    Settings,
+#[derive(Debug, Error)]
+pub enum AppError {
+    #[error("Text input error: {0}")]
+    TextInput(#[from] TextInputError),
+    #[error("Menu error: {0}")]
+    Menu(#[from] MenuError),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AppEvent {
-    NewGame,
-    JoinGame,
-    SettingsChanged,
+struct NavigationMemory {
+    main_menu: Option<usize>,
+    settings: Option<usize>,
 }
 
 pub struct App {
-    main_menu: Menu<BinaryColor, 24, 3>,
-    settings_menu: Menu<BinaryColor, NAME_CAPACITY, 2>,
     settings: Settings,
-    screen: Screen,
+    screen: ScreenState,
+    navigation: NavigationMemory,
 }
 
 impl App {
-    pub fn new(settings: Settings) -> Result<Self, TextInputError> {
-        let style = MenuStyle {
-            font: &FONT_6X10,
-            text_alignment: Alignment::Center,
-            ..Default::default()
-        };
-
-        let main_menu = Menu::new_with_items(&["New game", "Join game", "Settings"])
-            .expect("Main menu fits its capacities")
-            .set_style(style);
-        let mut settings_menu = Menu::with_style(style);
-        settings_menu
-            .add_text_input(TextInput::new("Username", &settings.user_name, true)?)
-            .expect("Username fits in the settings menu");
-        settings_menu
-            .add_item("Back")
-            .expect("Back fits in the settings menu");
+    pub fn new(settings: Settings) -> Result<Self, AppError> {
+        screen::settings_menu().validate_model(&settings)?;
 
         Ok(Self {
-            main_menu,
-            settings_menu,
             settings,
-            screen: Screen::MainMenu,
+            screen: ScreenState::MainMenu(screen::main_menu()),
+            navigation: NavigationMemory {
+                main_menu: Some(0),
+                settings: Some(0),
+            },
         })
     }
 
     pub fn screen(&self) -> Screen {
-        self.screen
+        match &self.screen {
+            ScreenState::MainMenu(_) => Screen::MainMenu,
+            ScreenState::Settings(_) => Screen::Settings,
+        }
     }
 
     pub fn settings(&self) -> &Settings {
         &self.settings
     }
 
-    pub fn user_name_input(&self) -> &TextInput<BinaryColor, NAME_CAPACITY> {
-        self.settings_menu
-            .text_input(0)
-            .expect("First settings row is the username input")
-    }
-
-    fn user_name_input_mut(&mut self) -> &mut TextInput<BinaryColor, NAME_CAPACITY> {
-        self.settings_menu
-            .text_input_mut(0)
-            .expect("First settings row is the username input")
+    pub fn active_editor(&self) -> Option<&TextEditor<NAME_CAPACITY>> {
+        match &self.screen {
+            ScreenState::MainMenu(_) => None,
+            ScreenState::Settings(menu) => menu.editor(),
+        }
     }
 
     pub fn is_editing(&self) -> bool {
-        self.screen == Screen::Settings && self.settings_menu.is_editing()
+        self.active_editor().is_some()
     }
 
-    pub fn select_next(&mut self) {
-        match self.screen {
-            Screen::MainMenu => self.main_menu.select_next(),
-            Screen::Settings => self.settings_menu.select_next(),
-        }
-    }
+    /// Updates the active screen and returns work for the firmware or simulator.
+    pub fn handle(&mut self, action: Action) -> Result<AppUpdate, AppError> {
+        if action == Action::Back
+            && matches!(&self.screen, ScreenState::Settings(menu) if !menu.is_editing())
+        {
+            self.open_main_menu();
 
-    pub fn select_previous(&mut self) {
-        match self.screen {
-            Screen::MainMenu => self.main_menu.select_previous(),
-            Screen::Settings => self.settings_menu.select_previous(),
-        }
-    }
-
-    /// Activates a menu row, or accepts the current edit. Only accepting a
-    /// changed username updates settings and emits `SettingsChanged`.
-    pub fn select_item(&mut self) -> Option<AppEvent> {
-        if self.is_editing() {
-            return self.finish_edit();
+            return Ok(AppUpdate {
+                redraw: true,
+                effect: None,
+            });
         }
 
-        match self.screen {
-            Screen::MainMenu => match self.main_menu.select_item()? {
-                0 => Some(AppEvent::NewGame),
-                1 => Some(AppEvent::JoinGame),
-                2 => {
-                    self.screen = Screen::Settings;
+        match &mut self.screen {
+            ScreenState::MainMenu(menu) => {
+                let update = menu.handle_action(action.into(), &())?;
+                let mut redraw = update.redraw;
+                let effect = match update.command {
+                    Some(MainCommand::NewGame) => Some(AppEffect::NewGame),
+                    Some(MainCommand::JoinGame) => Some(AppEffect::JoinGame),
+                    Some(MainCommand::OpenSettings) => {
+                        self.open_settings();
+                        redraw = true;
 
-                    None
-                }
+                        None
+                    }
 
-                _ => unreachable!(),
-            },
+                    None => None,
+                };
 
-            Screen::Settings => {
-                if self.settings_menu.select_item() == Some(1) {
-                    self.screen = Screen::MainMenu;
-                }
+                Ok(AppUpdate { redraw, effect })
+            }
 
-                None
+            ScreenState::Settings(menu) => {
+                let update = menu.handle_action(action.into(), &self.settings)?;
+                let mut redraw = update.redraw;
+                let effect = match update.command {
+                    Some(SettingsCommand::SetUserName(user_name))
+                        if user_name != self.settings.user_name =>
+                    {
+                        self.settings.user_name = user_name;
+
+                        Some(AppEffect::SaveSettings(self.settings.clone()))
+                    }
+
+                    Some(SettingsCommand::Back) => {
+                        self.open_main_menu();
+                        redraw = true;
+
+                        None
+                    }
+
+                    Some(SettingsCommand::SetUserName(_)) | None => None,
+                };
+
+                Ok(AppUpdate { redraw, effect })
             }
         }
     }
 
-    pub fn finish_edit(&mut self) -> Option<AppEvent> {
-        if !self.is_editing() {
-            return None;
-        }
-
-        self.user_name_input_mut().finish_edit();
-        let user_name = self.user_name_input().value();
-
-        if user_name == self.settings.user_name.as_str() {
-            return None;
-        }
-
-        self.settings.user_name = user_name
-            .try_into()
-            .expect("Input and settings have the same username capacity");
-
-        Some(AppEvent::SettingsChanged)
+    pub fn select_next(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::SelectNext)
     }
 
-    /// Cancels an unaccepted edit, or returns from Settings to the main menu.
-    pub fn back(&mut self) -> bool {
-        if self.is_editing() {
-            return self.user_name_input_mut().cancel_edit();
-        }
-
-        if self.screen == Screen::Settings {
-            self.screen = Screen::MainMenu;
-
-            return true;
-        }
-
-        false
+    pub fn select_previous(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::SelectPrevious)
     }
 
-    pub fn next_character(&mut self) -> bool {
-        self.is_editing() && self.user_name_input_mut().next_character()
+    pub fn select_item(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::SelectItem)
     }
 
-    pub fn previous_character(&mut self) -> bool {
-        self.is_editing() && self.user_name_input_mut().previous_character()
+    pub fn finish_edit(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::FinishEdit)
     }
 
-    pub fn increment(&mut self) -> bool {
-        self.is_editing() && self.user_name_input_mut().increment()
+    pub fn back(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::Back)
     }
 
-    pub fn decrement(&mut self) -> bool {
-        self.is_editing() && self.user_name_input_mut().decrement()
+    pub fn next_character(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::NextCharacter)
     }
 
-    pub fn delete_character(&mut self) -> bool {
-        self.is_editing() && self.user_name_input_mut().delete_character()
+    pub fn previous_character(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::PreviousCharacter)
     }
 
-    /// Positions the active menu; editing always centers the value on screen.
+    pub fn increment(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::Increment)
+    }
+
+    pub fn decrement(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::Decrement)
+    }
+
+    pub fn delete_character(&mut self) -> Result<AppUpdate, AppError> {
+        self.handle(Action::DeleteCharacter)
+    }
+
+    /// Positions the active menu; editing always centers the draft on screen.
     pub fn draw_aligned<D, A>(&self, target: &mut D, alignment: A) -> Result<(), D::Error>
     where
         D: DrawTarget<Color = BinaryColor>,
@@ -190,18 +183,36 @@ impl App {
         target.clear(BinaryColor::Off)?;
         let area = target.bounding_box();
 
-        match self.screen {
-            Screen::MainMenu => self
-                .main_menu
-                .clone()
+        match &self.screen {
+            ScreenState::MainMenu(menu) => menu
+                .view(&())
                 .align_to(&area, alignment, vertical::Center)
                 .draw(target),
-            Screen::Settings => self
-                .settings_menu
-                .clone()
+            ScreenState::Settings(menu) => menu
+                .view(&self.settings)
                 .align_to(&area, alignment, vertical::Center)
                 .draw(target),
         }
+    }
+
+    fn open_settings(&mut self) {
+        if let ScreenState::MainMenu(menu) = &self.screen {
+            self.navigation.main_menu = menu.selected_index();
+        }
+
+        let mut menu = screen::settings_menu();
+        menu.set_selected_index(self.navigation.settings);
+        self.screen = ScreenState::Settings(menu);
+    }
+
+    fn open_main_menu(&mut self) {
+        if let ScreenState::Settings(menu) = &self.screen {
+            self.navigation.settings = menu.selected_index();
+        }
+
+        let mut menu = screen::main_menu();
+        menu.set_selected_index(self.navigation.main_menu);
+        self.screen = ScreenState::MainMenu(menu);
     }
 }
 

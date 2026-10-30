@@ -13,9 +13,10 @@ use embedded_graphics::{
     transform::Transform,
 };
 use embedded_layout::align::{Align, horizontal, vertical};
+use heapless::String;
 
-use super::{Menu, MenuAction, MenuError, MenuStyle};
-use crate::ui::TextInput;
+use super::{EditOutcome, Menu, MenuAction, MenuError, MenuStyle, MenuUpdate};
+use crate::ui::{TextInput, TextInputError};
 
 fn mock_display<C: PixelColor>() -> MockDisplay<C> {
     let mut display = MockDisplay::new();
@@ -58,15 +59,27 @@ fn navigation_wraps_and_only_activation_returns_an_index() {
     let mut menu = Menu::<BinaryColor, 5, 3>::new_with_items(&["One", "Two", "Three"]).unwrap();
 
     for expected_index in [1, 2, 0] {
-        assert_eq!(menu.handle_action(MenuAction::NextItem), None);
+        assert_eq!(
+            menu.handle_action(MenuAction::NextItem, &())
+                .unwrap()
+                .command,
+            None
+        );
         assert_eq!(menu.selected_index(), Some(expected_index));
     }
 
     for expected_index in [2, 1, 0] {
-        assert_eq!(menu.handle_action(MenuAction::PreviousItem), None);
+        assert_eq!(
+            menu.handle_action(MenuAction::PreviousItem, &())
+                .unwrap()
+                .command,
+            None
+        );
         assert_eq!(menu.selected_index(), Some(expected_index));
         assert_eq!(
-            menu.handle_action(MenuAction::SelectItem),
+            menu.handle_action(MenuAction::SelectItem, &())
+                .unwrap()
+                .command,
             Some(expected_index)
         );
     }
@@ -84,8 +97,8 @@ fn empty_and_single_item_menus_handle_every_action() {
         MenuAction::PreviousItem,
         MenuAction::SelectItem,
     ] {
-        assert_eq!(empty.handle_action(action), None);
-        single.handle_action(action);
+        assert_eq!(empty.handle_action(action, &()).unwrap().command, None);
+        let _ = single.handle_action(action, &()).unwrap();
         assert_eq!(single.selected_index(), Some(0));
         assert_eq!(single.selected_item(), Some("A"));
     }
@@ -110,7 +123,7 @@ fn failed_additions_preserve_selection_and_do_not_consume_capacity() {
     assert_eq!(menu.bounding_box(), initial_bounds);
 
     menu.add_item("éé").unwrap();
-    menu.handle_action(MenuAction::NextItem);
+    let _ = menu.handle_action(MenuAction::NextItem, &()).unwrap();
 
     let mut before = mock_display();
     menu.draw(&mut before).unwrap();
@@ -133,7 +146,7 @@ fn redrawing_selection_removes_the_previous_highlight_without_clearing() {
 
     assert_eq!(display.get_pixel(Point::zero()), Some(BinaryColor::On));
 
-    menu.handle_action(MenuAction::NextItem);
+    let _ = menu.handle_action(MenuAction::NextItem, &()).unwrap();
     menu.draw(&mut display).unwrap();
 
     let mut fresh = mock_display();
@@ -371,19 +384,55 @@ fn changing_item_alignment_and_selection_repaints_the_same_bounds() {
     assert_eq!(display, fresh);
 }
 
+#[derive(Debug, PartialEq, Eq)]
+struct FieldModel {
+    name: String<4>,
+    tag: String<4>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum FieldCommand {
+    SetName(String<4>),
+    SetTag(String<4>),
+    Back,
+}
+
+fn field_model() -> FieldModel {
+    FieldModel {
+        name: "abc".try_into().unwrap(),
+        tag: "xyz".try_into().unwrap(),
+    }
+}
+
+fn apply_command(model: &mut FieldModel, command: FieldCommand) {
+    match command {
+        FieldCommand::SetName(value) => model.name = value,
+        FieldCommand::SetTag(value) => model.tag = value,
+        FieldCommand::Back => {}
+    }
+}
+
 #[test]
 fn input_focus_changes_only_its_value_and_repaints_when_navigation_moves() {
-    let input = TextInput::new("Name", "abc", true).unwrap();
-    let mut menu = Menu::<BinaryColor, 4, 2>::new();
-    menu.add_text_input(input).unwrap();
-    menu.add_item("Back").unwrap();
+    let model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 2, FieldModel, FieldCommand>::new();
+    menu.add_text_field("Name", |model| &model.name, FieldCommand::SetName)
+        .unwrap();
+    menu.add_action("Back", FieldCommand::Back).unwrap();
 
     let mut focused = mock_display();
-    menu.draw(&mut focused).unwrap();
+    menu.view(&model).draw(&mut focused).unwrap();
 
-    menu.select_next();
+    assert_eq!(
+        menu.handle_action(MenuAction::NextItem, &model).unwrap(),
+        MenuUpdate {
+            redraw: true,
+            command: None,
+        }
+    );
+
     let mut unfocused = mock_display();
-    menu.draw(&mut unfocused).unwrap();
+    menu.view(&model).draw(&mut unfocused).unwrap();
 
     // The label occupies the left of the row and must never be highlighted.
     for point in Rectangle::new(Point::zero(), Size::new(24, 10)).points() {
@@ -408,48 +457,78 @@ fn input_focus_changes_only_its_value_and_repaints_when_navigation_moves() {
         Some(BinaryColor::On)
     );
 
-    menu.draw(&mut focused).unwrap();
+    menu.view(&model).draw(&mut focused).unwrap();
     assert_eq!(focused, unfocused);
 }
 
 #[test]
 fn selecting_an_input_starts_editing_and_locks_menu_navigation() {
-    let mut menu = Menu::<BinaryColor, 4, 2>::new();
-    menu.add_item("Back").unwrap();
-    menu.add_text_input(TextInput::new("Name", "abc", true).unwrap())
+    let model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 2, FieldModel, FieldCommand>::new();
+    menu.add_action("Back", FieldCommand::Back).unwrap();
+    menu.add_text_field("Name", |model| &model.name, FieldCommand::SetName)
         .unwrap();
 
-    menu.select_next();
+    let _ = menu.handle_action(MenuAction::NextItem, &model).unwrap();
     assert_eq!(menu.selected_item(), Some("Name"));
-    assert_eq!(menu.select_item(), None);
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        MenuUpdate {
+            redraw: true,
+            command: None,
+        }
+    );
+
     assert!(menu.is_editing());
 
-    menu.select_next();
-    menu.select_previous();
+    for action in [MenuAction::NextItem, MenuAction::PreviousItem] {
+        assert_eq!(
+            menu.handle_action(action, &model).unwrap(),
+            MenuUpdate::default()
+        );
+    }
+
     assert_eq!(menu.selected_index(), Some(1));
 
-    let input = menu.selected_text_input_mut().unwrap();
-    input.increment();
-    input.cancel_edit();
-    assert_eq!(menu.text_input(1).unwrap().value(), "abc");
+    let _ = menu.handle_action(MenuAction::Increment, &model).unwrap();
+    let _ = menu.handle_action(MenuAction::Back, &model).unwrap();
+    assert_eq!(model.name, "abc");
+    assert!(!menu.is_editing());
 
-    menu.select_next();
-    assert_eq!(menu.select_item(), Some(0));
+    let _ = menu.handle_action(MenuAction::NextItem, &model).unwrap();
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        MenuUpdate {
+            redraw: false,
+            command: Some(FieldCommand::Back),
+        }
+    );
 }
 
 #[test]
 fn selecting_a_read_only_input_leaves_menu_navigation_available() {
-    let mut menu = Menu::<BinaryColor, 4, 2>::new();
-    menu.add_text_input(TextInput::new("Name", "abc", false).unwrap())
+    let model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 2, FieldModel, FieldCommand>::new();
+    menu.add_read_only_field("Name", |model| &model.name)
         .unwrap();
-    menu.add_item("Back").unwrap();
+    menu.add_action("Back", FieldCommand::Back).unwrap();
 
-    assert_eq!(menu.select_item(), None);
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        MenuUpdate::default()
+    );
+
     assert!(!menu.is_editing());
 
-    menu.select_next();
-    assert_eq!(menu.select_item(), Some(1));
-    assert_eq!(menu.text_input(0).unwrap().value(), "abc");
+    let _ = menu.handle_action(MenuAction::NextItem, &model).unwrap();
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model)
+            .unwrap()
+            .command,
+        Some(FieldCommand::Back)
+    );
+
+    assert_eq!(model.name, "abc");
 }
 
 #[test]
@@ -457,21 +536,14 @@ fn menu_editor_uses_menu_style_and_fills_the_display_instead_of_a_row() {
     let mut style = MenuStyle::new(&FONT_6X10, Rgb888::GREEN, Rgb888::BLUE);
     style.padding = Size::new(1, 1);
 
-    let mut menu = Menu::<Rgb888, 4, 2>::with_style(style);
-    menu.add_text_input(
-        TextInput::with_style(
-            "Name",
-            "abc",
-            true,
-            MenuStyle::new(&FONT_5X8, Rgb888::RED, Rgb888::WHITE),
-        )
-        .unwrap(),
-    )
-    .unwrap();
+    let model = field_model();
+    let mut menu = Menu::<Rgb888, 4, 2, FieldModel, FieldCommand>::with_style(style);
+    menu.add_text_field("Name", |model| &model.name, FieldCommand::SetName)
+        .unwrap();
 
-    menu.select_item();
+    let _ = menu.handle_action(MenuAction::SelectItem, &model).unwrap();
     let mut display = mock_display();
-    menu.draw(&mut display).unwrap();
+    menu.view(&model).draw(&mut display).unwrap();
 
     assert_eq!(display.affected_area(), display.bounding_box());
     assert_eq!(display.get_pixel(Point::zero()), Some(Rgb888::BLUE));
@@ -482,4 +554,214 @@ fn menu_editor_uses_menu_style_and_fills_the_display_instead_of_a_row() {
             Some(Rgb888::GREEN | Rgb888::BLUE)
         ));
     }
+}
+
+#[test]
+fn editing_routes_commands_to_the_selected_binding_and_leaves_the_model_to_the_caller() {
+    let mut model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 3, FieldModel, FieldCommand>::new();
+    menu.add_action("Back", FieldCommand::Back).unwrap();
+    menu.add_text_field("Tag", |model| &model.tag, FieldCommand::SetTag)
+        .unwrap();
+    menu.add_text_field("Name", |model| &model.name, FieldCommand::SetName)
+        .unwrap();
+
+    let changed = MenuUpdate {
+        redraw: true,
+        command: None,
+    };
+
+    assert_eq!(
+        menu.handle_action(MenuAction::NextItem, &model).unwrap(),
+        changed
+    );
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        changed
+    );
+    assert_eq!(menu.editor().unwrap().original_value(), "xyz");
+
+    for action in [MenuAction::NextItem, MenuAction::PreviousItem] {
+        assert_eq!(
+            menu.handle_action(action, &model).unwrap(),
+            MenuUpdate::default()
+        );
+    }
+
+    menu.set_selected_index(Some(2));
+    assert_eq!(menu.selected_index(), Some(1));
+
+    for action in [
+        MenuAction::Increment,
+        MenuAction::NextCharacter,
+        MenuAction::Increment,
+        MenuAction::PreviousCharacter,
+        MenuAction::Decrement,
+        MenuAction::DeleteCharacter,
+    ] {
+        assert_eq!(menu.handle_action(action, &model).unwrap(), changed);
+    }
+
+    assert_eq!(menu.editor().unwrap().value(), "zz");
+    assert_eq!(model, field_model());
+    assert_eq!(
+        menu.handle_action(MenuAction::Back, &model).unwrap(),
+        changed
+    );
+    assert!(menu.editor().is_none());
+    assert_eq!(model, field_model());
+
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        changed
+    );
+    assert_eq!(menu.editor().unwrap().value(), "xyz");
+    assert_eq!(
+        menu.handle_action(MenuAction::Decrement, &model).unwrap(),
+        changed
+    );
+
+    let accepted = menu.handle_action(MenuAction::FinishEdit, &model).unwrap();
+    assert_eq!(
+        accepted,
+        MenuUpdate {
+            redraw: true,
+            command: Some(FieldCommand::SetTag("wyz".try_into().unwrap())),
+        }
+    );
+
+    assert_eq!(model, field_model());
+    apply_command(&mut model, accepted.command.unwrap());
+    assert_eq!(model.tag, "wyz");
+    assert_eq!(model.name, "abc");
+    assert_eq!(
+        menu.handle_action(MenuAction::FinishEdit, &model).unwrap(),
+        MenuUpdate::default()
+    );
+
+    assert_eq!(
+        menu.handle_action(MenuAction::NextItem, &model).unwrap(),
+        changed
+    );
+    assert_eq!(menu.selected_index(), Some(2));
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        changed
+    );
+    assert_eq!(
+        menu.handle_action(MenuAction::Increment, &model).unwrap(),
+        changed
+    );
+
+    let outcome = menu.finish_edit();
+    assert_eq!(
+        outcome,
+        EditOutcome::Accepted(FieldCommand::SetName("bbc".try_into().unwrap()))
+    );
+
+    let EditOutcome::Accepted(command) = outcome else {
+        panic!("A changed draft must produce its field's command");
+    };
+
+    apply_command(&mut model, command);
+    assert_eq!(model.name, "bbc");
+    assert_eq!(model.tag, "wyz");
+    assert_eq!(menu.finish_edit(), EditOutcome::Inactive);
+
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        changed
+    );
+    assert_eq!(
+        menu.handle_action(MenuAction::FinishEdit, &model).unwrap(),
+        changed
+    );
+    assert!(!menu.is_editing());
+    assert_eq!(
+        menu.handle_action(MenuAction::FinishEdit, &model).unwrap(),
+        MenuUpdate::default()
+    );
+}
+
+#[test]
+fn views_and_new_edits_read_the_latest_committed_model_value() {
+    let mut model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 1, FieldModel, FieldCommand>::new();
+    menu.add_text_field("Name", |model| &model.name, FieldCommand::SetName)
+        .unwrap();
+
+    let mut before = mock_display();
+    menu.view(&model).draw(&mut before).unwrap();
+    model.name = "xyz".try_into().unwrap();
+
+    let mut after = mock_display();
+    menu.view(&model).draw(&mut after).unwrap();
+    assert_ne!(after, before);
+
+    let mut expected_input = TextInput::<BinaryColor, 4>::new("Name", "xyz", true).unwrap();
+    expected_input.set_focused(true);
+    let mut expected = mock_display();
+    expected_input.draw(&mut expected).unwrap();
+    assert_eq!(after, expected);
+
+    let _ = menu.handle_action(MenuAction::SelectItem, &model).unwrap();
+    assert_eq!(menu.editor().unwrap().value(), "xyz");
+    assert_eq!(menu.editor().unwrap().original_value(), "xyz");
+    let _ = menu.handle_action(MenuAction::Increment, &model).unwrap();
+    let _ = menu.handle_action(MenuAction::Back, &model).unwrap();
+    assert_eq!(model.name, "xyz");
+
+    let _ = menu.handle_action(MenuAction::SelectItem, &model).unwrap();
+    assert_eq!(menu.finish_edit(), EditOutcome::Unchanged);
+}
+
+#[test]
+fn invalid_field_labels_and_values_preserve_browsing_state() {
+    let mut model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 2, FieldModel, FieldCommand>::new();
+    menu.add_action("Back", FieldCommand::Back).unwrap();
+
+    assert_eq!(
+        menu.add_text_field("\n", |model| &model.name, FieldCommand::SetName),
+        Err(MenuError::TextInput(TextInputError::UnsupportedCharacter))
+    );
+
+    assert_eq!(menu.selected_index(), Some(0));
+    assert_eq!(menu.selected_item(), Some("Back"));
+    menu.add_text_field("Name", |model| &model.name, FieldCommand::SetName)
+        .unwrap();
+    let _ = menu.handle_action(MenuAction::NextItem, &model).unwrap();
+
+    model.name = "é".try_into().unwrap();
+    assert_eq!(
+        menu.validate_model(&model),
+        Err(TextInputError::UnsupportedCharacter)
+    );
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model),
+        Err(TextInputError::UnsupportedCharacter)
+    );
+
+    assert!(!menu.is_editing());
+    assert!(menu.editor().is_none());
+    assert_eq!(menu.selected_index(), Some(1));
+    let _ = menu.handle_action(MenuAction::NextItem, &model).unwrap();
+    assert_eq!(menu.selected_item(), Some("Back"));
+}
+
+#[test]
+fn zero_capacity_text_fields_cannot_start_an_editor() {
+    let model = String::<0>::new();
+    let mut menu = Menu::<BinaryColor, 0, 1, String<0>, ()>::new();
+    menu.add_text_field("", |value| value, |_| ()).unwrap();
+
+    assert_eq!(menu.validate_model(&model), Ok(()));
+    assert_eq!(
+        menu.handle_action(MenuAction::SelectItem, &model).unwrap(),
+        MenuUpdate::default()
+    );
+
+    assert!(!menu.is_editing());
+    assert!(menu.editor().is_none());
+    assert_eq!(menu.finish_edit(), EditOutcome::Inactive);
 }
