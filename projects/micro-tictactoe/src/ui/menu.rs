@@ -8,7 +8,7 @@
 //! use micro_tictactoe::ui::{Menu, MenuAction};
 //! use embedded_graphics::pixelcolor::BinaryColor;
 //!
-//! let mut menu = Menu::<BinaryColor, 24, 4>::new_with_items(&["New game", "Join game"])?;
+//! let mut menu = Menu::<BinaryColor, 0, 4>::new_with_items(&["New game", "Join game"])?;
 //! assert!(menu.handle_action(MenuAction::NextItem, &())?.redraw);
 //! assert_eq!(menu.handle_action(MenuAction::SelectItem, &())?.command, Some(1));
 //! # Ok::<(), Box<dyn std::error::Error>>(())
@@ -41,6 +41,7 @@ use heapless::{String, Vec};
 use thiserror::Error;
 
 use super::{
+    LABEL_CAPACITY,
     text_editor::TextEditor,
     text_input::{TextInput, TextInputError},
 };
@@ -105,11 +106,11 @@ pub enum EditOutcome<Command> {
 #[derive(Clone, Debug)]
 pub enum MenuItem<Model, Command, const N: usize> {
     Action {
-        label: String<N>,
+        label: String<LABEL_CAPACITY>,
         command: Command,
     },
     TextField {
-        label: String<N>,
+        label: String<LABEL_CAPACITY>,
         read: fn(&Model) -> &String<N>,
         commit: Option<fn(String<N>) -> Command>,
     },
@@ -137,6 +138,7 @@ enum MenuState<Command, const N: usize> {
 
 /// Owns row definitions and exactly one current interaction state.
 /// Use `view(model)` to draw rows from their committed values.
+/// `N` bounds text values; all labels use [`super::LABEL_CAPACITY`] bytes.
 #[derive(Clone, Debug)]
 pub struct Menu<C: PixelColor, const N: usize, const MAX_ITEMS: usize, Model = (), Command = usize>
 {

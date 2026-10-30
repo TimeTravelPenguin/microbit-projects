@@ -27,7 +27,7 @@ pub(super) enum SettingsCommand {
     Back,
 }
 
-pub(super) type MainMenu = Menu<BinaryColor, 24, 3, (), MainCommand>;
+pub(super) type MainMenu = Menu<BinaryColor, 0, 3, (), MainCommand>;
 pub(super) type SettingsMenu = Menu<BinaryColor, NAME_CAPACITY, 2, Settings, SettingsCommand>;
 
 pub(super) enum ScreenState {
@@ -50,7 +50,7 @@ pub(super) fn main_menu() -> MainMenu {
 pub(super) fn settings_menu() -> SettingsMenu {
     let mut menu: SettingsMenu = Menu::with_style(style());
     menu.add_text_field(
-        "Username",
+        "Username:",
         |settings| &settings.user_name,
         SettingsCommand::SetUserName,
     )

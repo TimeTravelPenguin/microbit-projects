@@ -1,5 +1,8 @@
 //! Allocation-free widgets for the OLED display and desktop simulator.
 
+/// Maximum label length in bytes, independent of editable value capacities.
+pub const LABEL_CAPACITY: usize = 12;
+
 pub mod menu;
 mod text;
 pub mod text_editor;

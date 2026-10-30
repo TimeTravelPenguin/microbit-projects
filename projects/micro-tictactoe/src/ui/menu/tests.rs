@@ -16,7 +16,7 @@ use embedded_layout::align::{Align, horizontal, vertical};
 use heapless::String;
 
 use super::{EditOutcome, Menu, MenuAction, MenuError, MenuStyle, MenuUpdate};
-use crate::ui::{TextInput, TextInputError};
+use crate::ui::{LABEL_CAPACITY, TextInput, TextInputError};
 
 fn mock_display<C: PixelColor>() -> MockDisplay<C> {
     let mut display = MockDisplay::new();
@@ -116,13 +116,15 @@ fn empty_and_single_item_menus_handle_every_action() {
 fn failed_additions_preserve_selection_and_do_not_consume_capacity() {
     let mut menu = Menu::<BinaryColor, 4, 2>::new_with_items(&["A"]).unwrap();
     let initial_bounds = menu.bounding_box();
+    let label_bytes = [b'A'; LABEL_CAPACITY + 1];
+    let overlong_label = core::str::from_utf8(&label_bytes).unwrap();
 
-    assert_eq!(menu.add_item("ééé"), Err(MenuError::ItemTooLong));
+    assert_eq!(menu.add_item(overlong_label), Err(MenuError::ItemTooLong));
     assert_eq!(menu.selected_index(), Some(0));
     assert_eq!(menu.selected_item(), Some("A"));
     assert_eq!(menu.bounding_box(), initial_bounds);
 
-    menu.add_item("éé").unwrap();
+    menu.add_item("ééé").unwrap();
     let _ = menu.handle_action(MenuAction::NextItem, &()).unwrap();
 
     let mut before = mock_display();
@@ -130,7 +132,7 @@ fn failed_additions_preserve_selection_and_do_not_consume_capacity() {
 
     assert_eq!(menu.add_item("B"), Err(MenuError::MenuFull));
     assert_eq!(menu.selected_index(), Some(1));
-    assert_eq!(menu.selected_item(), Some("éé"));
+    assert_eq!(menu.selected_item(), Some("ééé"));
 
     let mut after = mock_display();
     menu.draw(&mut after).unwrap();
@@ -410,6 +412,39 @@ fn apply_command(model: &mut FieldModel, command: FieldCommand) {
         FieldCommand::SetTag(value) => model.tag = value,
         FieldCommand::Back => {}
     }
+}
+
+#[test]
+fn action_and_field_labels_share_the_global_capacity() {
+    let model = field_model();
+    let mut menu = Menu::<BinaryColor, 4, 3, FieldModel, FieldCommand>::new();
+    let label_bytes = [b'A'; LABEL_CAPACITY + 1];
+    let label = core::str::from_utf8(&label_bytes).unwrap();
+    let longest_label = &label[..LABEL_CAPACITY];
+
+    assert_eq!(
+        menu.add_action(label, FieldCommand::Back),
+        Err(MenuError::ItemTooLong)
+    );
+    assert_eq!(
+        menu.add_text_field(label, |model| &model.name, FieldCommand::SetName),
+        Err(MenuError::TextInput(TextInputError::LabelTooLong))
+    );
+    assert_eq!(
+        menu.add_read_only_field(label, |model| &model.name),
+        Err(MenuError::TextInput(TextInputError::LabelTooLong))
+    );
+    assert_eq!(menu.selected_index(), None);
+
+    menu.add_action(longest_label, FieldCommand::Back).unwrap();
+    menu.add_text_field(longest_label, |model| &model.name, FieldCommand::SetName)
+        .unwrap();
+    menu.add_read_only_field(longest_label, |model| &model.tag)
+        .unwrap();
+
+    assert!(menu.items.iter().all(|item| item.label() == longest_label));
+    assert_eq!(menu.selected_index(), Some(0));
+    assert_eq!(menu.validate_model(&model), Ok(()));
 }
 
 #[test]
@@ -721,10 +756,16 @@ fn invalid_field_labels_and_values_preserve_browsing_state() {
     let mut menu = Menu::<BinaryColor, 4, 2, FieldModel, FieldCommand>::new();
     menu.add_action("Back", FieldCommand::Back).unwrap();
 
-    assert_eq!(
-        menu.add_text_field("\n", |model| &model.name, FieldCommand::SetName),
-        Err(MenuError::TextInput(TextInputError::UnsupportedCharacter))
-    );
+    for invalid_label in ["\n", "é"] {
+        assert_eq!(
+            menu.add_text_field(invalid_label, |model| &model.name, FieldCommand::SetName),
+            Err(MenuError::TextInput(TextInputError::UnsupportedCharacter))
+        );
+        assert_eq!(
+            menu.add_read_only_field(invalid_label, |model| &model.name),
+            Err(MenuError::TextInput(TextInputError::UnsupportedCharacter))
+        );
+    }
 
     assert_eq!(menu.selected_index(), Some(0));
     assert_eq!(menu.selected_item(), Some("Back"));

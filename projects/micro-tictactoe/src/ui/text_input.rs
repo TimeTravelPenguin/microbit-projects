@@ -17,7 +17,7 @@ use embedded_graphics::{
 use heapless::String;
 
 use super::{
-    MenuStyle,
+    LABEL_CAPACITY, MenuStyle,
     text::{bounded_text, text_width, value_padding},
     text_editor::TextEditor,
 };
@@ -32,13 +32,14 @@ enum TextInputState<const N: usize> {
 ///
 /// `value()` exposes the current draft while editing. `finish_edit()` accepts
 /// it, and `cancel_edit()` restores the value present when editing began.
+/// Labels use [`super::LABEL_CAPACITY`] bytes independently of the value's `N`.
 /// Normal dimensions reserve `N` characters so changing a value never moves
 /// surrounding menu rows. Editing occupies the draw target, hides the label,
 /// and centers the existing value, scrolling to keep the cursor visible. The
 /// append box appears only when selected and follows the final character.
 #[derive(Clone, Debug)]
 pub struct TextInput<C: PixelColor, const N: usize> {
-    label: String<N>,
+    label: String<LABEL_CAPACITY>,
     state: TextInputState<N>,
     editable: bool,
     focused: bool,

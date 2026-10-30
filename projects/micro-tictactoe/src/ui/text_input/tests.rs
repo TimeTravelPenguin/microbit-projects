@@ -10,7 +10,7 @@ use embedded_graphics::{
     transform::Transform,
 };
 
-use crate::ui::text_editor::ALPHABET;
+use crate::ui::{LABEL_CAPACITY, text_editor::ALPHABET};
 
 use super::{MenuStyle, TextInput, TextInputError};
 
@@ -123,12 +123,27 @@ fn invalid_updates_preserve_the_draft_cursor_and_cancellation_baseline() {
     assert_eq!(input.value(), "ab");
 
     assert!(matches!(
-        TextInput::<BinaryColor, 3>::new("Name", "a", true),
+        TextInput::<BinaryColor, 4>::new("N\n", "a", true),
+        Err(TextInputError::UnsupportedCharacter)
+    ));
+}
+
+#[test]
+fn labels_and_values_have_independent_capacities() {
+    let label_bytes = [b'A'; LABEL_CAPACITY + 1];
+    let label = core::str::from_utf8(&label_bytes).unwrap();
+    let longest_label = &label[..LABEL_CAPACITY];
+    let input = TextInput::<BinaryColor, 3>::new(longest_label, "abc", true).unwrap();
+
+    assert_eq!(input.label(), longest_label);
+    assert_eq!(input.value(), "abc");
+    assert!(matches!(
+        TextInput::<BinaryColor, 3>::new(label, "abc", true),
         Err(TextInputError::LabelTooLong)
     ));
     assert!(matches!(
-        TextInput::<BinaryColor, 4>::new("N\n", "a", true),
-        Err(TextInputError::UnsupportedCharacter)
+        TextInput::<BinaryColor, 3>::new(longest_label, "abcd", true),
+        Err(TextInputError::ValueTooLong)
     ));
 }
 
