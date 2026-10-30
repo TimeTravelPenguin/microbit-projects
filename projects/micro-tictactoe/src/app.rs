@@ -114,8 +114,8 @@ impl App {
                     Some(SettingsCommand::SetUserName(user_name))
                         if user_name != self.settings.user_name =>
                     {
-                        self.settings.user_name = user_name;
-
+                        // trim can only make the string shorter, so this is safe to unwrap
+                        self.settings.user_name = user_name.trim().try_into().unwrap();
                         Some(AppEffect::SaveSettings(self.settings.clone()))
                     }
 
