@@ -14,7 +14,7 @@ use rtt_target::{rprintln, rtt_init_print};
 
 use micro_tictactoe::{
     app::{App, AppEffect},
-    hardware::{Busses, Hardware},
+    hardware::{Busses, DISPLAY_SIZE, Hardware},
     input::{buttons, firmware_action},
     settings,
 };
@@ -40,7 +40,7 @@ async fn main(spawner: Spawner) {
         (peripherals.TWISPI1, peripherals.P0_01, peripherals.P0_02).into(),
     );
 
-    let mut hardware = Hardware::new(busses).await;
+    let mut hardware = Hardware::new(busses, DISPLAY_SIZE).await;
     let display = &mut hardware.display;
     let cardkb = &mut hardware.cardkb;
 

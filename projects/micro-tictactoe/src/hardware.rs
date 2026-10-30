@@ -6,24 +6,31 @@ use embassy_nrf::{
     twim::{self, Twim},
 };
 
-use ssd1306::{I2CDisplayInterface, Ssd1306Async, mode::BufferedGraphicsModeAsync, prelude::*};
+use ssd1306::{
+    I2CDisplayInterface, Ssd1306Async, mode::BufferedGraphicsModeAsync, prelude::*,
+    size::DisplaySizeAsync,
+};
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<peripherals::TWISPI0>;
     TWISPI1 => twim::InterruptHandler<peripherals::TWISPI1>;
 });
 
-pub type Oled<I> =
-    Ssd1306Async<I2CInterface<I>, DisplaySize128x64, BufferedGraphicsModeAsync<DisplaySize128x64>>;
+pub const DISPLAY_SIZE: DisplaySize128x64 = DisplaySize128x64;
 
-pub struct Hardware<'d> {
-    pub display: Oled<Twim<'d>>,
+pub type Oled<I2c, Size> = Ssd1306Async<I2CInterface<I2c>, Size, BufferedGraphicsModeAsync<Size>>;
+
+pub struct Hardware<'d, Size: DisplaySizeAsync> {
+    pub display: Oled<Twim<'d>, Size>,
     pub cardkb: CardKb<Twim<'d>>,
 }
 
-impl<'d> Hardware<'d> {
-    pub async fn new(busses: Busses<'d>) -> Self {
-        let display = init_display(busses.display).await;
+impl<'d, Size> Hardware<'d, Size>
+where
+    Size: DisplaySizeAsync,
+{
+    pub async fn new(busses: Busses<'d>, display_size: Size) -> Self {
+        let display = init_display(busses.display, display_size).await;
         let cardkb = init_cardkb(busses.cardkb);
 
         Self { display, cardkb }
@@ -106,10 +113,13 @@ impl<'d> Busses<'d> {
     }
 }
 
-pub async fn init_display<'d>(bus: Twim<'d>) -> Oled<Twim<'d>> {
+pub async fn init_display<'d, Size>(bus: Twim<'d>, size: Size) -> Oled<Twim<'d>, Size>
+where
+    Size: DisplaySizeAsync,
+{
     let interface = I2CDisplayInterface::new(bus);
-    let mut display = Ssd1306Async::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
-        .into_buffered_graphics_mode();
+    let mut display =
+        Ssd1306Async::new(interface, size, DisplayRotation::Rotate0).into_buffered_graphics_mode();
 
     display.init().await.expect("Failed to initialize display");
     display.clear_buffer();
