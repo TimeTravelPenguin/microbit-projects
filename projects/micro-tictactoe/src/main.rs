@@ -4,23 +4,21 @@
 use cardkb::{Key, key::KeyExt};
 use embassy_executor::Spawner;
 use embassy_nrf::{
-    bind_interrupts,
     config::{Config, HfclkSource},
     gpio::{Input, Pull},
-    peripherals,
-    twim::{self, Twim},
 };
+
 use embassy_time::Timer;
 use embedded_graphics::Drawable;
-use micro_tictactoe::input::buttons::{self, ButtonPresses};
-use micro_tictactoe::{app::App, hardware, settings};
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 
-bind_interrupts!(struct Irqs {
-    TWISPI0 => twim::InterruptHandler<peripherals::TWISPI0>;
-    TWISPI1 => twim::InterruptHandler<peripherals::TWISPI1>;
-});
+use micro_tictactoe::{
+    app::App,
+    hardware::{Busses, Hardware},
+    input::buttons::{self, ButtonPresses},
+    settings,
+};
 
 #[embassy_executor::main]
 async fn main(spawner: Spawner) {
@@ -36,35 +34,16 @@ async fn main(spawner: Spawner) {
 
     let mut app = App::new(settings).expect("Failed to create menus");
 
-    let mut display_tx_buffer = [0u8; 32];
-    let mut cardkb_tx_buffer = [0u8; 32];
-
-    let mut display_config = twim::Config::default();
-    display_config.frequency = twim::Frequency::K400;
-
-    let display_bus = Twim::new(
-        peripherals.TWISPI0,
-        Irqs,
-        peripherals.P1_00, // SDA
-        peripherals.P0_26, // SCL
-        display_config,
-        &mut display_tx_buffer,
+    let busses = Busses::new(
+        // Display SDA is edge connector P20; SCL is edge connector P19.
+        (peripherals.TWISPI0, peripherals.P1_00, peripherals.P0_26).into(),
+        // CardKB SDA is edge connector P14; SCL is edge connector P0.
+        (peripherals.TWISPI1, peripherals.P0_01, peripherals.P0_02).into(),
     );
 
-    let mut cardkb_config = twim::Config::default();
-    cardkb_config.frequency = twim::Frequency::K100;
-
-    let cardkb_bus = Twim::new(
-        peripherals.TWISPI1,
-        Irqs,
-        peripherals.P0_01, // SDA: edge connector P14
-        peripherals.P0_02, // SCL: edge connector P0
-        cardkb_config,
-        &mut cardkb_tx_buffer,
-    );
-
-    let mut display = hardware::init_display(display_bus).await;
-    let mut cardkb = hardware::init_cardkb(cardkb_bus);
+    let mut hardware = Hardware::new(busses).await;
+    let display = &mut hardware.display;
+    let cardkb = &mut hardware.cardkb;
 
     spawner.spawn(
         buttons::sample(
@@ -91,7 +70,7 @@ async fn main(spawner: Spawner) {
         needs_redraw |= handle_inputs(&mut app, key, presses);
 
         if needs_redraw {
-            app.draw(&mut display).expect("Failed to draw screen");
+            app.draw(display).expect("Failed to draw screen");
             display.flush().await.expect("Failed to flush display");
             needs_redraw = false;
         }
