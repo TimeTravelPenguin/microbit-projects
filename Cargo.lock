@@ -137,6 +137,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "cellular"
+version = "0.1.0"
+dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
+ "embassy-executor",
+ "embassy-nrf",
+ "embassy-time",
+ "embedded-graphics",
+ "embedded-graphics-simulator",
+ "heapless 0.9.3",
+ "kitronik-view",
+ "microbit-input",
+ "panic-rtt-target",
+ "rtt-target",
+]
+
+[[package]]
 name = "cfg-if"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -824,9 +842,19 @@ dependencies = [
 name = "kitronik-view"
 version = "0.1.0"
 dependencies = [
+ "cortex-m",
+ "cortex-m-rt",
  "display-interface",
+ "embassy-executor",
+ "embassy-nrf",
+ "embassy-time",
+ "embedded-graphics",
  "embedded-hal 1.0.0",
  "embedded-hal-async",
+ "heapless 0.9.3",
+ "nrf52833-hal",
+ "panic-rtt-target",
+ "rtt-target",
  "ssd1306",
 ]
 

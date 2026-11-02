@@ -15,6 +15,7 @@ members = [
   "projects/micro-view",
   "projects/micro-view-audio",
   "projects/tutorial",
+  "projects/cellular",
 ]
 # Desktop training has its own workspace and lockfile.
 exclude = ["projects/micro-autoenc"]
