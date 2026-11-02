@@ -5,6 +5,12 @@ set dotenv-required := true
 default:
     @just --list
 
+# Create an Embassy async micro:bit V2 project and add it to the workspace.
+new-async name:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    ASYNC_PROJECT_NAME="$1" python3 "{{justfile_directory()}}/scripts/new_async_project.py"
 
 # Build and run a Cargo workspace package, with Pushover notifications.
 run name *args:

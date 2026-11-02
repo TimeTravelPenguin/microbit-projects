@@ -24,3 +24,5 @@ datasets
 artifacts
 .env
 projects/*/assets
+.venv
+__pycache__

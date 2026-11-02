@@ -1,0 +1,7 @@
+[build]
+target = "thumbv7em-none-eabihf"
+
+[target.thumbv7em-none-eabihf]
+linker = "rust-lld"
+runner = "probe-rs run --chip nRF52833_xxAA"
+rustflags = ["-C", "link-arg=-Tlink.x"]
