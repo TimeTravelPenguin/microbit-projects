@@ -4,6 +4,7 @@ members = [
   "crates/cardkb",
   "crates/microbit-input",
   "crates/microbit-power",
+  "crates/monkmakes",
   "crates/serial-setup",
   "projects/micro-arcade",
   "projects/micro-log",
