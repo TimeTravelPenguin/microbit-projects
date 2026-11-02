@@ -28,7 +28,34 @@ P19 (P0.26); tic-tac-toe configures this bus at 400 kHz. `DISPLAY_SIZE` is
 The display starts with no rotation; use the returned driver's methods to
 change it if needed.
 
-Run the initialization and bus-failure checks with:
+## Examples
+
+The standalone micro:bit V2 examples draw text and update a counter once per
+second. Connect the :VIEW to 3V, GND, edge P20 (SDA), and edge P19 (SCL), with
+the display address set to `0x3C`.
+
+From the workspace root, build either example:
+
+```sh
+cargo build -p kitronik-view --example display_blocking --target thumbv7em-none-eabihf
+cargo build -p kitronik-view --example display_async --no-default-features --features async --target thumbv7em-none-eabihf
+```
+
+Replace `build` with `run` to flash and run on a connected board using `probe-rs`.
+From `crates/kitronik-view`, the target is selected automatically:
+
+```sh
+cargo run --example display_blocking
+cargo run --example display_async --no-default-features --features async
+```
+
+[display_blocking](examples/display_blocking.rs) uses the blocking nRF HAL;
+[display_async](examples/display_async.rs) uses Embassy and an I²C interrupt
+binding. Both configure I²C at 400 kHz. The examples share Embassy's interrupt
+table, with the blocking HAL's runtime feature disabled. Their memory map is
+supplied only to the example executables.
+
+Run the initialization and bus-failure checks from the workspace root with:
 
 ```sh
 cargo test -p kitronik-view --lib
