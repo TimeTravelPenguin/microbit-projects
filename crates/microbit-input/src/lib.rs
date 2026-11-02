@@ -1,9 +1,20 @@
 //! Button debounce and press counts, independent of screen rendering.
+//!
+//! `blocking` (enabled by default) samples from TIMER2 interrupts; `async`
+//! provides an async sampling future. Both use the same debounce state machine.
+//! Disable default features to use the state machine without hardware drivers.
 
 #![no_std]
 
+#[cfg(feature = "async")]
+pub mod r#async;
+
+#[cfg(feature = "blocking")]
+pub mod blocking;
+
+/// Compatibility name for the blocking hardware sampler.
 #[cfg(feature = "hardware")]
-pub mod input;
+pub use blocking as input;
 
 pub mod logo;
 

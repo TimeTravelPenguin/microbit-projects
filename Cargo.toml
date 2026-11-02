@@ -2,6 +2,7 @@
 resolver = "3"
 members = [
   "crates/cardkb",
+  "crates/kitronik-view",
   "crates/microbit-input",
   "crates/microbit-power",
   "crates/monkmakes",
@@ -21,6 +22,7 @@ exclude = ["projects/micro-autoenc"]
 [workspace.dependencies]
 # Shared firmware crates opt into hardware in their consuming applications.
 cardkb = { path = "crates/cardkb", default-features = false }
+kitronik-view = { path = "crates/kitronik-view", default-features = false }
 microbit-input = { path = "crates/microbit-input", default-features = false }
 microbit-power = { path = "crates/microbit-power", default-features = false }
 serial-setup = { path = "crates/serial-setup" }

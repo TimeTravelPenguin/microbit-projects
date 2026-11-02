@@ -45,7 +45,7 @@ async fn main(spawner: Spawner) {
     let cardkb = &mut hardware.cardkb;
 
     spawner.spawn(
-        buttons::sample(
+        sample_buttons(
             Input::new(peripherals.P0_14, Pull::None),
             Input::new(peripherals.P0_23, Pull::None),
         )
@@ -96,6 +96,13 @@ async fn main(spawner: Spawner) {
 
         Timer::after_millis(5).await;
     }
+}
+
+#[embassy_executor::task]
+async fn sample_buttons(button_a: Input<'static>, button_b: Input<'static>) {
+    buttons::sample(button_a, button_b)
+        .await
+        .expect("Failed to sample buttons");
 }
 
 fn handle_effect(effect: AppEffect) {

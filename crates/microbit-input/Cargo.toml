@@ -2,16 +2,21 @@
 name = "microbit-input"
 version = "0.1.0"
 edition = "2024"
-description = "Interrupt-driven button sampling for micro:bit V2"
+description = "Blocking and async button sampling for micro:bit V2"
 
 [features]
-default = []
-hardware = ["dep:cortex-m", "dep:embedded-hal", "dep:microbit-v2"]
+default = ["blocking"]
+async = ["dep:cortex-m", "dep:embedded-hal", "dep:embassy-time"]
+blocking = ["dep:cortex-m", "dep:embedded-hal", "dep:nrf52833-hal"]
+# Compatibility with existing display projects.
+hardware = ["blocking"]
 
 [dependencies]
 cortex-m = { workspace = true, optional = true }
+embassy-time = { workspace = true, optional = true }
 embedded-hal = { workspace = true, optional = true }
-microbit-v2 = { workspace = true, optional = true }
+# The consuming application selects the interrupt-vector runtime.
+nrf52833-hal = { version = "0.19.0", default-features = false, optional = true }
 
 [lints]
 workspace = true

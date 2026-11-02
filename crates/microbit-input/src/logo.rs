@@ -6,7 +6,7 @@ const CALIBRATION_READINGS: u8 = 10;
 const RECOVERY_READINGS: u8 = 4;
 
 /// Elapsed charge time on the hardware's free-running 32-bit microsecond clock.
-#[cfg(any(feature = "hardware", test))]
+#[cfg(any(feature = "blocking", test))]
 pub(crate) fn elapsed_charge_us(captured_us: u32, started_us: u32, maximum_us: u32) -> u32 {
     captured_us.wrapping_sub(started_us).min(maximum_us)
 }

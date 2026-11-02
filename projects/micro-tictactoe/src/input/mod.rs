@@ -7,4 +7,4 @@ pub use navigation::{
 };
 
 #[cfg(target_arch = "arm")]
-pub mod buttons;
+pub use microbit_input::r#async as buttons;

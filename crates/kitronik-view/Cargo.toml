@@ -1,0 +1,19 @@
+[package]
+name = "kitronik-view"
+version = "0.1.0"
+edition = "2024"
+description = "Blocking and async OLED setup for the Kitronik :VIEW"
+
+[dependencies]
+display-interface.workspace = true
+embedded-hal = { workspace = true, optional = true }
+embedded-hal-async = { workspace = true, optional = true }
+ssd1306.workspace = true
+
+[features]
+default = ["blocking"]
+async = ["dep:embedded-hal-async", "ssd1306/async"]
+blocking = ["dep:embedded-hal"]
+
+[lints]
+workspace = true

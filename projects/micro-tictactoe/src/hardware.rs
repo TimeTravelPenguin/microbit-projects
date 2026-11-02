@@ -1,4 +1,9 @@
 pub use cardkb::r#async::CardKb;
+pub use kitronik_view::{
+    DISPLAY_SIZE,
+    r#async::{Oled, init_display},
+};
+
 use embassy_nrf::{
     Peri, PeripheralType, bind_interrupts,
     gpio::{AnyPin, Pin},
@@ -6,19 +11,12 @@ use embassy_nrf::{
     twim::{self, Twim},
 };
 
-use ssd1306::{
-    I2CDisplayInterface, Ssd1306Async, mode::BufferedGraphicsModeAsync, prelude::*,
-    size::DisplaySizeAsync,
-};
+use kitronik_view::size::DisplaySizeAsync;
 
 bind_interrupts!(struct Irqs {
     TWISPI0 => twim::InterruptHandler<peripherals::TWISPI0>;
     TWISPI1 => twim::InterruptHandler<peripherals::TWISPI1>;
 });
-
-pub const DISPLAY_SIZE: DisplaySize128x64 = DisplaySize128x64;
-
-pub type Oled<I2c, Size> = Ssd1306Async<I2CInterface<I2c>, Size, BufferedGraphicsModeAsync<Size>>;
 
 pub struct Hardware<'d, Size: DisplaySizeAsync> {
     pub display: Oled<Twim<'d>, Size>,
@@ -30,7 +28,9 @@ where
     Size: DisplaySizeAsync,
 {
     pub async fn new(busses: Busses<'d>, display_size: Size) -> Self {
-        let display = init_display(busses.display, display_size).await;
+        let display = init_display(busses.display, display_size)
+            .await
+            .expect("Failed to initialize display");
         let cardkb = init_cardkb(busses.cardkb);
 
         Self { display, cardkb }
@@ -111,25 +111,6 @@ impl<'d> Busses<'d> {
 
         Self { display, cardkb }
     }
-}
-
-pub async fn init_display<'d, Size>(bus: Twim<'d>, size: Size) -> Oled<Twim<'d>, Size>
-where
-    Size: DisplaySizeAsync,
-{
-    let interface = I2CDisplayInterface::new(bus);
-    let mut display =
-        Ssd1306Async::new(interface, size, DisplayRotation::Rotate0).into_buffered_graphics_mode();
-
-    display.init().await.expect("Failed to initialize display");
-    display.clear_buffer();
-    display.flush().await.expect("Failed to flush display");
-    display
-        .set_display_on(true)
-        .await
-        .expect("Failed to turn on display");
-
-    display
 }
 
 pub fn init_cardkb<'d>(bus: Twim<'d>) -> CardKb<Twim<'d>> {

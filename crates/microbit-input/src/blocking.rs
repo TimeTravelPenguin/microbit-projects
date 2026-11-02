@@ -1,4 +1,8 @@
 //! Sample and debounce buttons independently of foreground I²C transfers.
+//!
+//! This module owns TIMER2 and its interrupt handler. Applications supply their
+//! nRF52833 interrupt-vector runtime. Capacitive logo sampling additionally
+//! reserves GPIOTE channel 0 and PPI channel 2.
 
 use core::cell::RefCell;
 
@@ -11,14 +15,12 @@ use cortex_m::{
     peripheral::NVIC,
 };
 use embedded_hal::digital::InputPin;
-use microbit::{
-    hal::{
-        Timer,
-        gpio::{Floating, Input, OpenDrainIO, Output, p0::P0_14, p0::P0_23, p1::P1_04},
-        ppi::{ConfigurablePpi, Ppi, Ppi2},
-        timer::Periodic,
-    },
-    pac::{self, interrupt},
+use nrf52833_hal::{
+    Timer,
+    gpio::{Floating, Input, OpenDrainIO, Output, p0::P0_14, p0::P0_23, p1::P1_04},
+    pac,
+    ppi::{ConfigurablePpi, Ppi, Ppi2},
+    timer::Periodic,
 };
 
 const SAMPLE_INTERVAL_US: u32 = 2_000;
@@ -223,8 +225,10 @@ pub fn stop() {
     NVIC::unpend(pac::Interrupt::TIMER2);
 }
 
-#[interrupt]
-fn TIMER2() {
+// Supply the handler without selecting a PAC interrupt-vector table. This also
+// permits both driver modes under an application-selected runtime.
+#[unsafe(export_name = "TIMER2")]
+unsafe extern "C" fn timer2_interrupt() {
     free(|cs| {
         if let Some(input) = INPUT.borrow(cs).borrow_mut().as_mut()
             && input.timer.reset_if_finished()

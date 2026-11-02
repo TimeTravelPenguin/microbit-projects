@@ -821,6 +821,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "kitronik-view"
+version = "0.1.0"
+dependencies = [
+ "display-interface",
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+ "ssd1306",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -987,7 +997,6 @@ dependencies = [
  "cardkb",
  "cortex-m",
  "cortex-m-rt",
- "display-interface",
  "embassy-embedded-hal",
  "embassy-executor",
  "embassy-futures",
@@ -999,12 +1008,13 @@ dependencies = [
  "embedded-hal-bus",
  "embedded-layout",
  "heapless 0.9.3",
+ "kitronik-view",
+ "microbit-input",
  "panic-rtt-target",
  "rand",
  "rtt-target",
  "sequential-storage",
  "serde",
- "ssd1306",
  "thiserror",
 ]
 
@@ -1061,8 +1071,9 @@ name = "microbit-input"
 version = "0.1.0"
 dependencies = [
  "cortex-m",
+ "embassy-time",
  "embedded-hal 1.0.0",
- "microbit-v2",
+ "nrf52833-hal",
 ]
 
 [[package]]
