@@ -18,7 +18,7 @@ members = [
   "projects/tutorial",
 ]
 # Desktop training has its own workspace and lockfile.
-exclude = ["projects/micro-autoenc"]
+exclude = ["ai-projects/micro-burn", "projects/micro-autoenc"]
 
 [workspace.dependencies]
 # Shared firmware crates opt into hardware in their consuming applications.

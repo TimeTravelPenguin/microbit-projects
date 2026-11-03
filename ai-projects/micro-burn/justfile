@@ -1,0 +1,26 @@
+set positional-arguments
+
+# List available recipes.
+default:
+    @just --list
+
+# Build the desktop app and firmware with release optimisation.
+build: build-app build-firmware
+
+# Build the desktop app in release mode.
+build-app:
+    cargo build --locked --release -p micro-burn-app
+
+# Build release-optimised firmware with debugging information.
+build-firmware:
+    cargo build --locked --profile firmware -p micro-burn-firmware --target thumbv7em-none-eabihf --target-dir target-firmware
+
+# Build and run the desktop app in release mode; forward app arguments.
+run *args:
+    #!/usr/bin/env sh
+    set -eu
+    cargo run --locked --release -p micro-burn-app -- "$@"
+
+# Build, flash and run firmware on the connected micro:bit, with RTT output.
+embed:
+    cargo run --locked --profile firmware -p micro-burn-firmware --target thumbv7em-none-eabihf --target-dir target-firmware

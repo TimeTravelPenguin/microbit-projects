@@ -1,0 +1,6 @@
+target/
+target-firmware/
+artifacts/
+data/raw/
+data/prepared/
+*.log

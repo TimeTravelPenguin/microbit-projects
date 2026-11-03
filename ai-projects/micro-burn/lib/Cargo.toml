@@ -1,0 +1,25 @@
+[package]
+name = "micro-burn"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "Nonblocking Burn training reports and a Bluetooth micro:bit pager protocol"
+
+[features]
+default = []
+host = ["dep:btleplug", "dep:futures-util", "dep:serde", "dep:serde_json", "dep:tokio", "dep:uuid"]
+burn = ["host", "dep:burn"]
+
+[dependencies]
+btleplug = { version = "=0.13.5", optional = true }
+futures-util = { version = "0.3", optional = true }
+serde = { version = "1", features = ["derive"], optional = true }
+serde_json = { version = "1", optional = true }
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "time", "fs", "macros", "io-util"], optional = true }
+uuid = { version = "1", optional = true }
+burn = { version = "=0.22.0-pre.4", default-features = false, features = ["std", "train", "metrics"], optional = true }
+
+[[example]]
+name = "discover"
+required-features = ["host"]
+

@@ -10,6 +10,7 @@ Below is a list of current projects.
 | Project            | Runs on   | Description |
 | ------------------ | --------- | ----------- |
 | [micro-autoenc]     | Computer  | Use an autoencoder to remove noise from audio |
+| [micro-burn]        | Both      | Train a graph neural network and follow progress on a Bluetooth OLED pager |
 | [micro-arcade]      | micro:bit | Learn micro:bit programming with a small arcade game |
 | [micro-log]         | micro:bit | Save accelerometer and magnetometer data across power-offs |
 | [micro-maze]        | micro:bit | Render a maze on a microcontroller display |
@@ -20,6 +21,7 @@ Below is a list of current projects.
 | [tutorial]          | micro:bit | Work through micro:bit examples and peripheral experiments |
 
 [micro-autoenc]: ./projects/micro-autoenc/
+[micro-burn]: ./projects/micro-burn/
 [micro-arcade]: ./projects/micro-arcade/
 [micro-log]: ./projects/micro-log/
 [micro-maze]: ./projects/micro-maze/
@@ -48,9 +50,8 @@ The Rust toolchain includes the micro:bit target and LLVM tools. Install
 running firmware on a connected board. From the repository root:
 
 ```sh
-# Check or build every firmware project and shared crate:
+# Check every firmware project and shared crate:
 cargo check-firmware
-cargo build-firmware --profile firmware
 
 # Build the independent desktop project:
 cargo build-host
@@ -61,6 +62,11 @@ cargo flash-arcade
 cargo build-tutorial
 cargo flash-tutorial
 ```
+
+Build firmware one project at a time. A full workspace build combines the
+blocking and async input features, pulling in two nRF interrupt tables and
+failing at the linker. The per-project build aliases keep those runtime choices
+separate; the workspace-wide check remains available.
 
 Every firmware project has matching `build-<name>` and `flash-<name>` aliases:
 `arcade`, `log`, `maze`, `radio`, `tictactoe`, `tutorial`, `view`, and `view-audio`.
@@ -106,6 +112,7 @@ Its commands and features are independent of the firmware workspace.
 
 ```sh
 just                              # List recipes; no .env file required.
+just new-async micro-example      # Create and register an Embassy firmware project.
 just tree                         # Inspect duplicate firmware dependency versions.
 just tree projects/micro-autoenc/Cargo.toml
 just run micro-autoenc --help      # Build and run in release mode, with notifications.
@@ -118,6 +125,11 @@ working directory, so configuration and output paths remain relative to the root
 The recipe requires `PUSHOVER_TOKEN` and `PUSHOVER_USER` in the environment or an
 optional root `.env` file; it sends build and run notifications through Pushover.
 Other recipes do not require these credentials.
+
+`just new-async <name>` creates `projects/<name>` with async micro:bit V2 startup,
+Embassy dependencies, RTT logging, memory layout, and build/flash configuration.
+It adds the project to the workspace and refuses to overwrite an existing path.
+Build or run the result from its directory with `cargo build` or `cargo run`.
 
 ## AI Usage
 
