@@ -1,21 +1,21 @@
 [workspace]
 resolver = "3"
 members = [
+  "ai-projects/micro-arcade",
+  "ai-projects/micro-log",
+  "ai-projects/micro-radio",
+  "ai-projects/micro-view",
+  "ai-projects/micro-view-audio",
   "crates/cardkb",
   "crates/kitronik-view",
   "crates/microbit-input",
   "crates/microbit-power",
   "crates/monkmakes",
   "crates/serial-setup",
-  "projects/micro-arcade",
-  "projects/micro-log",
-  "projects/micro-maze",
-  "projects/micro-radio",
-  "projects/micro-tictactoe",
-  "projects/micro-view",
-  "projects/micro-view-audio",
-  "projects/tutorial",
   "projects/cellular",
+  "projects/micro-maze",
+  "projects/micro-tictactoe",
+  "projects/tutorial",
 ]
 # Desktop training has its own workspace and lockfile.
 exclude = ["projects/micro-autoenc"]

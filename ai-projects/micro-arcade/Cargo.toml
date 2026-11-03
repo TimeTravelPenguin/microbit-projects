@@ -10,7 +10,7 @@ embedded-hal.workspace = true
 embedded-io.workspace = true
 heapless.workspace = true
 libm.workspace = true
-microbit-power.workspace = true
+microbit-power = { workspace = true, features = ["hardware"] }
 microbit-v2.workspace = true
 nrf52833-hal.workspace = true
 panic-halt.workspace = true

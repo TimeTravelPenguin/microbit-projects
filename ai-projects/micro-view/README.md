@@ -81,9 +81,9 @@ supply is present.
 ## How to use the screen
 
 [`src/main.rs`](src/main.rs) owns the hardware. [`src/lib.rs`](src/lib.rs) owns
-the graph and screen layout. [`src/input.rs`](src/input.rs) samples the buttons
-in the timer handler; [`src/buttons.rs`](src/buttons.rs) debounces and queues
-their press events. The key steps for the screen are:
+the graph and screen layout. The shared [`microbit-input`](../../crates/microbit-input/)
+crate samples the buttons in a timer handler, debounces and queues their press
+events. The key steps for the screen are:
 
 1. Set up the external I²C bus on **P19/SCL** and **P20/SDA**.
 2. Create an SSD1306 with the VIEW's **seven-bit address `0x3C`**,

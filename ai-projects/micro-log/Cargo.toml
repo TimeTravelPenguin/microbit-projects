@@ -1,0 +1,27 @@
+[package]
+name = "micro-log"
+version = "0.1.0"
+edition = "2024"
+description = "Persistent accelerometer and magnetometer logging on micro:bit V2"
+publish = false
+
+[[bin]]
+name = "micro-log"
+test = false
+bench = false
+
+[dependencies]
+embedded-storage.workspace = true
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m-rt.workspace = true
+embedded-hal.workspace = true
+lsm303agr.workspace = true
+microbit-input.workspace = true
+microbit-v2.workspace = true
+panic-rtt-target.workspace = true
+rtt-target.workspace = true
+serial-setup.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,25 @@
+[package]
+name = "micro-radio"
+version = "0.1.0"
+edition = "2024"
+description = "An Embassy async radio messaging demo for micro:bit V2"
+publish = false
+
+[[bin]]
+bench = false
+name = "micro-radio"
+test = false
+
+[target.'cfg(target_os = "none")'.dependencies]
+cortex-m.workspace = true
+cortex-m-rt.workspace = true
+embassy-executor = { workspace = true, features = ["executor-thread", "platform-cortex-m"] }
+embassy-futures.workspace = true
+embassy-nrf = { workspace = true, features = ["rt", "gpiote", "nrf52833", "time-driver-rtc1"] }
+embassy-sync.workspace = true
+embassy-time.workspace = true
+panic-rtt-target.workspace = true
+rtt-target.workspace = true
+
+[lints]
+workspace = true

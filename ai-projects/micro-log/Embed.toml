@@ -1,0 +1,15 @@
+[default.general]
+chip = "nrf52833_xxAA"
+
+[default.flashing]
+# Erase firmware sectors only; the log lives in separate flash pages.
+do_chip_erase = false
+
+[default.reset]
+halt_afterwards = false
+
+[default.rtt]
+enabled = true
+
+[default.gdb]
+enabled = false

@@ -1,8 +1,6 @@
 #![no_main]
 #![no_std]
 
-mod input;
-
 use core::cell::RefCell;
 
 use cortex_m_rt::entry;
@@ -18,10 +16,11 @@ use microbit::{
     },
     pac,
 };
+use microbit_input::input;
 use microbit_power::{PowerOff, SharedI2c};
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
-use ssd1306::{I2CDisplayInterface, Ssd1306, mode::BufferedGraphicsMode, prelude::*};
+use ssd1306::{Ssd1306, mode::BufferedGraphicsMode, prelude::*};
 
 type Oled = Ssd1306<
     I2CInterface<Twim<pac::TWIM1>>,
@@ -55,7 +54,7 @@ fn main() -> ! {
         Frequency::K400,
     );
 
-    let interface = I2CDisplayInterface::new_custom_address(display_bus, OLED_ADDRESS);
+    let interface = I2CInterface::new(display_bus, OLED_ADDRESS, 0x40);
     let mut oled = Some(
         Ssd1306::new(interface, DisplaySize128x64, DisplayRotation::Rotate0)
             .into_buffered_graphics_mode(),

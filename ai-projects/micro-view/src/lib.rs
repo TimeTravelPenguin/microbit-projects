@@ -14,9 +14,7 @@ use embedded_graphics::{
 };
 use heapless::String;
 
-mod buttons;
-
-pub use buttons::{ButtonPresses, Buttons, DebouncedButton};
+pub use microbit_input::{ButtonPresses, Buttons, DebouncedButton};
 
 /// One sample per graph column: 10.4 seconds at 10 Hz.
 const HISTORY_LEN: usize = 104;
